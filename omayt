@@ -2,7 +2,8 @@
 """
 omayt - Omarchy YouTube TUI
 Pesquise, veja thumbnails em alta definição (Sixel / Kitty / Chafa) e assista vídeos
-do YouTube direto no terminal do Omarchy, com proteção contra bloqueio 403 (tv_samsung / Ad-Wait).
+do YouTube direto no terminal do Omarchy, com proteção contra bloqueio 403 (tv_samsung / Ad-Wait)
+e seleção automática de codecs acelerados por hardware (VP9 / H.264 em vez de AV1).
 """
 
 from __future__ import annotations
@@ -28,7 +29,8 @@ if os.path.exists(YTDLP_BIN) and YTDLP_BIN not in sys.path:
     sys.path.insert(0, YTDLP_BIN)
 
 APP_NAME = "omayt"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
+
 
 def _resolve_writable_dir(preferred: Path, fallback_name: str) -> Path:
     try:
@@ -199,7 +201,6 @@ def _import_ytfzf_history_if_empty() -> None:
         return
     try:
         raw = ytfzf_hist.read_text(encoding="utf-8", errors="ignore")
-        # ytfzf grava múltiplos arrays JSON concatenados
         decoder = json.JSONDecoder()
         pos = 0
         imported: list[dict[str, Any]] = []
@@ -236,18 +237,21 @@ def _import_ytfzf_history_if_empty() -> None:
 
 
 def ensure_global_ytdlp_fix() -> bool:
-    """Garante que ~/.config/yt-dlp/config tenha o fix do -tv_samsung se for gravável."""
+    """Garante que ~/.config/yt-dlp/config tenha o fix do -tv_samsung e priorize H.264/VP9 sobre AV1."""
     ytdlp_cfg_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "yt-dlp"
     ytdlp_cfg = ytdlp_cfg_dir / "config"
     fix_line = '--extractor-args "youtube:player_client=default,-tv_samsung"'
+    codec_line = '-S "vcodec:h264,vp9"'
     try:
         ytdlp_cfg_dir.mkdir(parents=True, exist_ok=True)
         existing = ytdlp_cfg.read_text(encoding="utf-8") if ytdlp_cfg.is_file() else ""
-        if "-tv_samsung" not in existing:
-            with ytdlp_cfg.open("a", encoding="utf-8") as f:
+        with ytdlp_cfg.open("a", encoding="utf-8") as f:
+            if "-tv_samsung" not in existing:
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
                 f.write(f"# Adicionado pelo omayt para evitar bloqueio 403 de anúncio no cliente tv_samsung\n{fix_line}\n")
+            if "vcodec:h264,vp9" not in existing:
+                f.write(f"# Priorizar codecs com aceleração de hardware (H.264/VP9) em vez de AV1\n{codec_line}\n")
         return True
     except OSError:
         return False
@@ -256,9 +260,10 @@ def ensure_global_ytdlp_fix() -> bool:
 def ensure_ytdl_wrapper() -> Path:
     """
     Cria o wrapper executável usado pelo ytdl_hook do mpv.
-    Esse wrapper faz duas coisas críticas:
+    Esse wrapper faz três coisas críticas:
       1. Força `--extractor-args youtube:player_client=default,-tv_samsung`
-      2. Verifica se o JSON retornado pelo yt-dlp contém `available_at` no futuro
+      2. Prioriza codecs acelerados por hardware (`-S vcodec:h264,vp9`) evitando AV1 na CPU
+      3. Verifica se o JSON retornado pelo yt-dlp contém `available_at` no futuro
          (bloqueio temporário de anúncio de 3-5s do YouTube) e AGUARDA com contagem
          regressiva antes de entregar a URL ao ffmpeg do mpv, eliminando o HTTP 403!
     """
@@ -279,13 +284,13 @@ def run_ytdl_hook_wrapper(args: list[str]) -> int:
     """
     Interceptador do yt-dlp para o mpv:
     - Injeta `--extractor-args youtube:player_client=default,-tv_samsung`
+    - Prioriza codecs H.264 e VP9 (`-S vcodec:h264,vp9`) para evitar AV1 na CPU
     - Se o YouTube exigir espera de anúncio (`available_at`), aguarda com barra
       regressiva no terminal antes de devolver o JSON para o mpv.
     """
     cmd = [YTDLP_BIN]
-    # Só injeta extractor-args se não for chamada de --version
     if "--version" not in args:
-        cmd.extend(["--extractor-args", EXTRACTOR_ARGS_CLI])
+        cmd.extend(["--extractor-args", EXTRACTOR_ARGS_CLI, "-S", "vcodec:h264,vp9"])
     cmd.extend(args)
 
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -446,7 +451,6 @@ def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
     """
     px_w = max(160, min(px_width, 640))
     px_h = int(px_w * 9 / 16)
-    # Sixel trabalha em faixas verticais de 6 pixels
     px_h = (px_h // 6) * 6
 
     lib_path = "/usr/lib/libsixel.so.1"
@@ -477,7 +481,6 @@ def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
                 lib = ctypes.CDLL(lib_path)
                 encoder = ctypes.c_void_p()
                 if lib.sixel_encoder_new(ctypes.byref(encoder), None) == 0:
-                    # SIXEL_PIXELFORMAT_RGB888 = 3
                     res = lib.sixel_encoder_encode_bytes(
                         encoder, raw_rgb, px_w, px_h, 3, None, -1
                     )
@@ -617,7 +620,6 @@ def search_youtube(query: str, max_results: int = 20) -> list[dict[str, Any]]:
             if isinstance(info, dict):
                 entries_raw = info.get("entries") or []
     except Exception:
-        # Fallback via CLI
         proc = subprocess.run(
             [
                 YTDLP_BIN,
@@ -691,7 +693,6 @@ def search_youtube(query: str, max_results: int = 20) -> list[dict[str, Any]]:
     save_json_file(LAST_LIST_FILE, results)
     save_json_file(STATE_FILE, {"mode": "search", "query": query, "count": len(results)})
 
-    # Baixar as primeiras 2 thumbnails imediatamente para preview instantâneo e o resto em background
     first_ids = [r["id"] for r in results[:2]]
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         pool.map(download_single_thumb, first_ids)
@@ -744,7 +745,6 @@ def format_tui_rows(videos: list[dict[str, Any]], header_note: str = "") -> str:
 
     lines: list[str] = []
 
-    # Linha 1 fixa: Ação de Busca ao Vivo no YouTube
     search_hint = (
         f" ({header_note})" if header_note else " (Digite acima e aperte Enter ou Ctrl+S)"
     )
@@ -801,7 +801,6 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     sep = f"{c_mut}{'─' * max(20, min(cols - 2, 72))}{rst}"
 
     if item_id in ("__SEARCH__", "__HISTORY__") or not item_id:
-        state = load_json_file(STATE_FILE, {})
         search_hist = load_json_file(SEARCH_HIST_FILE, [])
         watch_hist = load_json_file(HISTORY_FILE, [])
 
@@ -818,7 +817,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
         print(f"\n {sep}")
         print(f" {c_acc}⌨  Atalhos Rápidos da TUI:{rst}")
-        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland)")
+        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland • VP9/H.264 HW)")
         print(f"   {c_yel}Alt+I{rst}    Assistir vídeo {c_grn}DENTRO do terminal{rst} (Sixel/Kitty pixels!)")
         print(f"   {c_yel}Alt+B{rst}    Assistir vídeo no terminal em modo {c_cyn}Blocos TrueColor{rst} (tct)")
         print(f"   {c_yel}Alt+A{rst}    Ouvir {c_mag}Apenas Áudio / Música{rst} no terminal")
@@ -830,8 +829,9 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         print(f"   {c_yel}Esc{rst}      Sair do omayt")
 
         print(f"\n {sep}")
-        print(f" {c_grn}🛡️  Proteção Anti-AdBlock YouTube Ativa:{rst}")
+        print(f" {c_grn}🛡️  Otimizações & Proteção Anti-AdBlock Ativas:{rst}")
         print(f"   {c_txt}• Cliente: {c_cyn}default,-tv_samsung{rst} (evita bloqueio 403 da Smart TV)")
+        print(f"   {c_txt}• Codec GPU: {c_grn}VP9 / H.264{rst} ({c_yel}[vcodec!^=av01]{rst} — evita travamento AV1 na CPU)")
         print(f"   {c_txt}• Ad-Wait Guard: detecta {c_yel}available_at{rst} e aguarda o anúncio se exigido")
         print(f"   {c_txt}• Tema Omarchy ativo: {c_mag}{THEME.name}{rst}")
 
@@ -845,7 +845,6 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     db = load_json_file(VIDEOS_DB_FILE, {})
     video = db.get(item_id)
     if not video:
-        # Tentar achar no histórico
         for h in load_json_file(HISTORY_FILE, []):
             if h.get("id") == item_id:
                 video = h
@@ -861,14 +860,12 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
             "url": f"https://www.youtube.com/watch?v={item_id}",
         }
 
-    # 1. Baixar (se necessário) e renderizar a Thumbnail no topo do preview!
     img_path = download_single_thumb(item_id, video.get("thumb_url", ""))
     if img_path and img_path.is_file():
         render_thumbnail_to_stdout(img_path, cols, lines)
     else:
         print(f"\n {c_mut}[Thumbnail indisponível para {item_id}]{rst}\n")
 
-    # 2. Exibir Metadados Formatados abaixo da thumbnail
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
     wrapped_title = textwrap.wrap(video.get("title", "Sem título"), width=wrap_w)
@@ -884,7 +881,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if video.get("watched_at"):
         print(f" {c_acc}󰋚 Assistido:{rst} {c_cyn}{video['watched_at']}{rst}")
     print(f" {c_acc}󰌷 Link     :{rst} {c_mut}{video.get('url', '')}{rst}")
-    print(f" {c_acc}🛡️ Stream   :{rst} {c_grn}player_client=default,-tv_samsung (Ad-Wait Ready){rst}")
+    print(f" {c_acc}🛡️ Stream   :{rst} {c_grn}VP9/H.264 HW (No-AV1) • Anti-403 Ativo{rst}")
 
     desc = (video.get("description") or "").strip()
     if desc:
@@ -924,8 +921,8 @@ def get_video_info(video_id: str) -> dict[str, Any]:
 def play_video(video_id: str, mode: str = "window") -> None:
     """
     Reproduz o vídeo selecionado usando mpv com:
-    1. Wrapper `omayt-ytdl` no `ytdl_hook-ytdl_path` (remove `tv_samsung` e aguarda `available_at` de anúncios)
-    2. `--ytdl-raw-options=extractor-args="youtube:player_client=default,-tv_samsung"`
+    1. Wrapper `omayt-ytdl` no `ytdl_hook-ytdl_path` (remove `tv_samsung`, prioriza H.264/VP9 e aguarda `available_at`)
+    2. Filtro `[vcodec!^=av01]` para ignorar AV1 e rodar liso na GPU sem travar o processador
     3. `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5`
     4. Fallback com espera automática de 4s caso o YouTube ainda bloqueie o primeiro acesso!
     """
@@ -952,32 +949,36 @@ def play_video(video_id: str, mode: str = "window") -> None:
         f"--force-media-title={title}",
     ]
 
+    # Ignora o codec AV1 ([vcodec!^=av01]) para pegar sempre VP9 ou H.264 (suportados via hardware pela GPU)
+    no_av1_1080 = "bestvideo[height<=?1080][vcodec!^=av01]+bestaudio/best[vcodec!^=av01]/best"
+    no_av1_720 = "bestvideo[height<=?720][vcodec!^=av01]+bestaudio/best[height<=?720][vcodec!^=av01]/best[vcodec!^=av01]/best"
+
     if mode == "inline-pixels":
         is_kitty_or_ghostty = bool(
             os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
         )
         if is_kitty_or_ghostty:
-            base_cmd.extend(["--vo=kitty", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol)"
+            base_cmd.extend(["--vo=kitty", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol • No-AV1)"
         else:
-            base_cmd.extend(["--vo=sixel", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot)"
+            base_cmd.extend(["--vo=sixel", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot • No-AV1)"
     elif mode == "inline-blocks":
-        base_cmd.extend(["--vo=tct", "--profile=sw-fast", "--really-quiet"])
-        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT)"
+        base_cmd.extend(["--vo=tct", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT • No-AV1)"
     elif mode == "audio":
         base_cmd.extend(["--no-video"])
         mode_label = "Modo Só Áudio (Terminal)"
     else:
-        base_cmd.extend(["--ytdl-format=bestvideo[height<=?1080]+bestaudio/best"])
-        mode_label = "Janela MPV (Wayland)"
+        base_cmd.extend([f"--ytdl-format={no_av1_1080}"])
+        mode_label = "Janela MPV (Wayland • VP9/H.264 Acelerado por GPU)"
 
     base_cmd.append(url)
 
     os.system("clear")
     print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
     print(f"  {c_yel}▶{rst} {title}")
-    print(f"  {c_mut}🛡️ Anti-AdBlock: player_client=default,-tv_samsung | URL: {url}{rst}")
+    print(f"  {c_mut}🛡️ Codec: VP9/H.264 ([vcodec!^=av01]) | Anti-AdBlock: default,-tv_samsung{rst}")
     if mode.startswith("inline"):
         print(f"  {c_mut}💡 Dica: Aperte 'q' para parar o vídeo e voltar à TUI, 'espaço' para pausar, ←/→ para avançar.{rst}\n")
     else:
@@ -987,8 +988,6 @@ def play_video(video_id: str, mode: str = "window") -> None:
     proc = subprocess.run(base_cmd)
     elapsed = time.time() - start_ts
 
-    # Se o mpv falhou rapidamente (< 5s) com erro, pode ter sido bloqueio temporário de anúncio (HTTP 403).
-    # Fazemos a espera inteligente de 4 segundos e tentamos abrir novamente!
     if proc.returncode != 0 and elapsed < 5.0:
         print(
             f"\n  {c_yel}⚠ O YouTube reteve o stream temporariamente por anúncio.{rst}"
@@ -998,7 +997,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
 
 
 def download_video(video_id: str) -> None:
-    """Baixa o vídeo (ou áudio) usando yt-dlp com fix -tv_samsung."""
+    """Baixa o vídeo (ou áudio) usando yt-dlp com fix -tv_samsung e sem AV1."""
     ensure_dirs()
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     video = get_video_info(video_id)
@@ -1014,7 +1013,7 @@ def download_video(video_id: str) -> None:
     print(f"\n  {c_acc}󰇚 Download • omayt{rst}")
     print(f"  {c_yel}Vídeo:{rst} {title}")
     print(f"  {c_yel}Pasta:{rst} {DOWNLOAD_DIR}\n")
-    print(f"  Escolha o formato: {c_grn}[1] Vídeo MP4 (padrão){rst}  |  {c_acc}[2] Apenas Áudio MP3{rst}  |  [q] Cancelar")
+    print(f"  Escolha o formato: {c_grn}[1] Vídeo MP4 (VP9/H.264){rst}  |  {c_acc}[2] Apenas Áudio MP3{rst}  |  [q] Cancelar")
     try:
         choice = input("  > ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -1027,6 +1026,8 @@ def download_video(video_id: str) -> None:
         YTDLP_BIN,
         "--extractor-args",
         EXTRACTOR_ARGS_CLI,
+        "-S",
+        "vcodec:h264,vp9",
         "-P",
         str(DOWNLOAD_DIR),
         "-o",
@@ -1035,7 +1036,7 @@ def download_video(video_id: str) -> None:
     if choice == "2":
         cmd.extend(["-x", "--audio-format", "mp3"])
     else:
-        cmd.extend(["-f", "bestvideo[height<=?1080]+bestaudio/best", "--merge-output-format", "mp4"])
+        cmd.extend(["-f", "bestvideo[height<=?1080][vcodec!^=av01]+bestaudio/best[vcodec!^=av01]/best", "--merge-output-format", "mp4"])
 
     cmd.append(url)
     print()
@@ -1163,7 +1164,6 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
             else ""
         )
 
-        # 1. Ação de Histórico (Ctrl+H)
         if action == "history" or (video_id == "__HISTORY__" and not typed_query):
             videos = load_json_file(HISTORY_FILE, [])
             save_json_file(LAST_LIST_FILE, videos)
@@ -1172,7 +1172,6 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
             current_query = ""
             continue
 
-        # 2. Ação de Busca no YouTube (Ctrl+S ou Enter na 1ª linha __SEARCH__)
         if action == "search" or video_id in ("__SEARCH__", "__HISTORY__") or not video_id:
             q = typed_query
             if not q:
@@ -1195,7 +1194,6 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
                 header_note = f"Busca: {q}"
             continue
 
-        # 3. Reproduzir / Baixar vídeo selecionado
         if action in ("alt-i", "ctrl-t"):
             play_video(video_id, mode="inline-pixels")
         elif action == "alt-b":
@@ -1209,7 +1207,6 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
         else:
             play_video(video_id, mode="window")
 
-        # Recarregar lista atualizada após voltar do player
         videos = load_json_file(LAST_LIST_FILE, videos)
 
     return 0
@@ -1226,13 +1223,13 @@ def print_help() -> None:
     c_grn = THEME.ansi_fg("green", bold=True)
     rst = THEME.reset
     print(
-        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Thumbnails Sixel/Kitty + Anti-AdBlock 403)
+        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Thumbnails Sixel/Kitty + Anti-AdBlock 403 + No-AV1)
 
 {c_yel}USO:{rst}
   omayt                        Abre a TUI interativa do omayt
   omayt <pesquisa>             Pesquisa direto no YouTube e abre a TUI com thumbnails
   omayt -H / --history         Abre a TUI direto no Histórico de vídeos assistidos
-  omayt --fix-ytdlp            Aplica a correção do cliente tv_samsung no ~/.config/yt-dlp/config
+  omayt --fix-ytdlp            Aplica as correções (-tv_samsung e sem AV1) no ~/.config/yt-dlp/config
   omayt -h / --help            Mostra esta ajuda
 
 {c_grn}ATALHOS DENTRO DA TUI:{rst}
@@ -1272,12 +1269,11 @@ def main(argv: list[str]) -> int:
         ensure_dirs()
         ok = ensure_global_ytdlp_fix()
         if ok:
-            print("✓ Configurado ~/.config/yt-dlp/config com: --extractor-args \"youtube:player_client=default,-tv_samsung\"")
+            print("✓ Configurado ~/.config/yt-dlp/config com fix -tv_samsung e preferência de codec VP9/H.264 (No-AV1)")
         else:
             print("⚠ Não foi possível gravar em ~/.config/yt-dlp/config (rode fora de sandbox ou via install.sh).")
         return 0 if ok else 1
 
-    # Subcomandos internos chamados pelo fzf e pelo mpv
     if cmd == "--internal-search":
         query = " ".join(argv[1:]).strip()
         if query:
@@ -1317,7 +1313,6 @@ def main(argv: list[str]) -> int:
     if cmd == "--internal-ytdl-hook":
         return run_ytdl_hook_wrapper(argv[1:])
 
-    # Qualquer outro argumento é tratado como termo de busca inicial
     return run_tui(initial_query=" ".join(argv))
 
 
