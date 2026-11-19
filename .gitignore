@@ -1,0 +1,16 @@
+# Python / Build / Packaging
+__pycache__/
+*.py[cod]
+*.tar.gz
+*.pkg.tar.zst
+pkg/
+src/
+dist/
+build/
+
+# Editors / OS
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

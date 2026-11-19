@@ -1,0 +1,1328 @@
+#!/usr/bin/env python3
+"""
+omayt - Omarchy YouTube TUI
+Pesquise, veja thumbnails em alta definição (Sixel / Kitty / Chafa) e assista vídeos
+do YouTube direto no terminal do Omarchy, com proteção contra bloqueio 403 (tv_samsung / Ad-Wait).
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import textwrap
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+# Permitir importar yt_dlp diretamente do binário zipapp do sistema (/usr/bin/yt-dlp)
+YTDLP_BIN = shutil.which("yt-dlp") or "/usr/bin/yt-dlp"
+if os.path.exists(YTDLP_BIN) and YTDLP_BIN not in sys.path:
+    sys.path.insert(0, YTDLP_BIN)
+
+APP_NAME = "omayt"
+APP_VERSION = "1.0.0"
+
+def _resolve_writable_dir(preferred: Path, fallback_name: str) -> Path:
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        test_file = preferred / f".write_test_{os.getpid()}"
+        test_file.write_text("", encoding="utf-8")
+        test_file.unlink()
+        return preferred
+    except OSError:
+        fb = Path(tempfile.gettempdir()) / f"{APP_NAME}-{os.getuid()}" / fallback_name
+        fb.mkdir(parents=True, exist_ok=True)
+        return fb
+
+
+CACHE_DIR = _resolve_writable_dir(
+    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / APP_NAME, "cache"
+)
+THUMBS_DIR = CACHE_DIR / "thumbs"
+VIDEOS_DB_FILE = CACHE_DIR / "videos_db.json"
+LAST_LIST_FILE = CACHE_DIR / "last_list.json"
+STATE_FILE = CACHE_DIR / "state.json"
+YTDL_WRAPPER_PATH = CACHE_DIR / "omayt-ytdl"
+
+CONFIG_DIR = _resolve_writable_dir(
+    Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME, "config"
+)
+HISTORY_FILE = CONFIG_DIR / "watch_history.json"
+SEARCH_HIST_FILE = CONFIG_DIR / "search_history.json"
+DOWNLOAD_DIR = Path.home() / "Videos" / "omayt"
+
+# Argumento que desativa o cliente tv_samsung (causador do HTTP 403 de 5s de anúncio)
+EXTRACTOR_ARGS_CLI = "youtube:player_client=default,-tv_samsung"
+EXTRACTOR_ARGS_DICT = {"youtube": {"player_client": ["default", "-tv_samsung"]}}
+
+
+# ============================================================================
+# 1. INTEGRAÇÃO COM O TEMA DO OMARCHY
+# ============================================================================
+
+DEFAULT_COLORS = {
+    "accent": "#89b4fa",
+    "selection": "#45475a",
+    "muted": "#585b70",
+    "background": "#1e1e2e",
+    "dark_background": "#161622",
+    "darker_background": "#101019",
+    "lighter_background": "#313244",
+    "foreground": "#cdd6f4",
+    "dark_foreground": "#6c7086",
+    "light_foreground": "#bac2de",
+    "bright_foreground": "#cdd6f4",
+    "red": "#f38ba8",
+    "yellow": "#f9e2af",
+    "orange": "#f6b6ab",
+    "green": "#a6e3a1",
+    "cyan": "#94e2d5",
+    "blue": "#89b4fa",
+    "magenta": "#f5c2e7",
+}
+
+
+class OmarchyTheme:
+    """Lê automaticamente a paleta de cores do tema ativo do Omarchy."""
+
+    def __init__(self) -> None:
+        self.name = "Omarchy"
+        self.colors = dict(DEFAULT_COLORS)
+        self._load()
+
+    def _load(self) -> None:
+        state_dir = Path.home() / ".local" / "state" / "omarchy" / "current"
+        name_file = state_dir / "theme.name"
+        colors_file = state_dir / "theme" / "colors.toml"
+
+        if name_file.is_file():
+            try:
+                raw = name_file.read_text(encoding="utf-8").strip()
+                if raw:
+                    self.name = raw.replace("-", " ").title()
+            except OSError:
+                pass
+
+        if not colors_file.is_file():
+            fallback = Path("/usr/share/omarchy/themes/catppuccin/colors.toml")
+            if fallback.is_file():
+                colors_file = fallback
+
+        if colors_file.is_file():
+            try:
+                for line in colors_file.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if v.startswith("#") and len(v) == 7:
+                        self.colors[k] = v
+            except OSError:
+                pass
+
+    def hex(self, key: str) -> str:
+        return self.colors.get(key, DEFAULT_COLORS.get(key, "#cdd6f4"))
+
+    def ansi_fg(self, key: str, bold: bool = False) -> str:
+        h = self.hex(key).lstrip("#")
+        try:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except ValueError:
+            r, g, b = 205, 214, 244
+        prefix = "\033[1;" if bold else "\033["
+        return f"{prefix}38;2;{r};{g};{b}m"
+
+    @property
+    def reset(self) -> str:
+        return "\033[0m"
+
+    def fzf_color_arg(self) -> str:
+        c = self.colors
+        parts = [
+            f"bg:{c['background']}",
+            f"bg+:{c['lighter_background']}",
+            f"preview-bg:{c['dark_background']}",
+            f"fg:{c['foreground']}",
+            f"fg+:{c['bright_foreground']}",
+            f"hl:{c['accent']}",
+            f"hl+:{c['yellow']}",
+            f"info:{c['cyan']}",
+            f"prompt:{c['accent']}",
+            f"pointer:{c['red']}",
+            f"marker:{c['green']}",
+            f"spinner:{c['magenta']}",
+            f"header:{c['light_foreground']}",
+            f"border:{c['accent']}",
+            f"preview-border:{c['muted']}",
+            f"label:{c['accent']}",
+            f"preview-label:{c['cyan']}",
+            f"gutter:{c['background']}",
+        ]
+        return "--color=" + ",".join(parts)
+
+
+THEME = OmarchyTheme()
+
+
+# ============================================================================
+# 2. UTILITÁRIOS DE DIRETÓRIO, BANCO DE DADOS E WRAPPER ANTI-ADBLOCK (403)
+# ============================================================================
+
+
+def ensure_dirs() -> None:
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    ensure_ytdl_wrapper()
+    _import_ytfzf_history_if_empty()
+
+
+def _import_ytfzf_history_if_empty() -> None:
+    """Importa histórico existente do ytfzf na primeira execução para a TUI já iniciar populada."""
+    if HISTORY_FILE.is_file():
+        return
+    ytfzf_hist = Path.home() / ".cache" / "ytfzf" / "watch_hist"
+    if not ytfzf_hist.is_file():
+        return
+    try:
+        raw = ytfzf_hist.read_text(encoding="utf-8", errors="ignore")
+        # ytfzf grava múltiplos arrays JSON concatenados
+        decoder = json.JSONDecoder()
+        pos = 0
+        imported: list[dict[str, Any]] = []
+        db = load_json_file(VIDEOS_DB_FILE, {})
+        while pos < len(raw):
+            while pos < len(raw) and raw[pos].isspace():
+                pos += 1
+            if pos >= len(raw):
+                break
+            obj, next_pos = decoder.raw_decode(raw, pos)
+            pos = next_pos
+            if isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, dict) and item.get("ID"):
+                        vid = str(item["ID"])
+                        v_obj = {
+                            "id": vid,
+                            "title": item.get("title") or vid,
+                            "channel": item.get("channel") or "YouTube",
+                            "duration": item.get("duration") or "—",
+                            "views": format_views(item.get("views")),
+                            "url": f"https://www.youtube.com/watch?v={vid}",
+                            "thumb_url": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                            "description": item.get("description") or "",
+                            "watched_at": item.get("viewed") or "",
+                        }
+                        imported.insert(0, v_obj)
+                        db[vid] = v_obj
+        if imported:
+            save_json_file(HISTORY_FILE, imported)
+            save_json_file(VIDEOS_DB_FILE, db)
+    except Exception:
+        pass
+
+
+def ensure_global_ytdlp_fix() -> bool:
+    """Garante que ~/.config/yt-dlp/config tenha o fix do -tv_samsung se for gravável."""
+    ytdlp_cfg_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "yt-dlp"
+    ytdlp_cfg = ytdlp_cfg_dir / "config"
+    fix_line = '--extractor-args "youtube:player_client=default,-tv_samsung"'
+    try:
+        ytdlp_cfg_dir.mkdir(parents=True, exist_ok=True)
+        existing = ytdlp_cfg.read_text(encoding="utf-8") if ytdlp_cfg.is_file() else ""
+        if "-tv_samsung" not in existing:
+            with ytdlp_cfg.open("a", encoding="utf-8") as f:
+                if existing and not existing.endswith("\n"):
+                    f.write("\n")
+                f.write(f"# Adicionado pelo omayt para evitar bloqueio 403 de anúncio no cliente tv_samsung\n{fix_line}\n")
+        return True
+    except OSError:
+        return False
+
+
+def ensure_ytdl_wrapper() -> Path:
+    """
+    Cria o wrapper executável usado pelo ytdl_hook do mpv.
+    Esse wrapper faz duas coisas críticas:
+      1. Força `--extractor-args youtube:player_client=default,-tv_samsung`
+      2. Verifica se o JSON retornado pelo yt-dlp contém `available_at` no futuro
+         (bloqueio temporário de anúncio de 3-5s do YouTube) e AGUARDA com contagem
+         regressiva antes de entregar a URL ao ffmpeg do mpv, eliminando o HTTP 403!
+    """
+    script_path = Path(__file__).resolve()
+    wrapper_code = f"""#!/usr/bin/env bash
+exec python3 "{script_path}" --internal-ytdl-hook "$@"
+"""
+    try:
+        if not YTDL_WRAPPER_PATH.is_file() or YTDL_WRAPPER_PATH.read_text(encoding="utf-8") != wrapper_code:
+            YTDL_WRAPPER_PATH.write_text(wrapper_code, encoding="utf-8")
+        YTDL_WRAPPER_PATH.chmod(0o755)
+    except OSError:
+        pass
+    return YTDL_WRAPPER_PATH
+
+
+def run_ytdl_hook_wrapper(args: list[str]) -> int:
+    """
+    Interceptador do yt-dlp para o mpv:
+    - Injeta `--extractor-args youtube:player_client=default,-tv_samsung`
+    - Se o YouTube exigir espera de anúncio (`available_at`), aguarda com barra
+      regressiva no terminal antes de devolver o JSON para o mpv.
+    """
+    cmd = [YTDLP_BIN]
+    # Só injeta extractor-args se não for chamada de --version
+    if "--version" not in args:
+        cmd.extend(["--extractor-args", EXTRACTOR_ARGS_CLI])
+    cmd.extend(args)
+
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+
+    out = proc.stdout
+    if proc.returncode == 0 and out.lstrip().startswith("{"):
+        try:
+            data = json.loads(out)
+            avail_times: list[float] = []
+            if isinstance(data.get("available_at"), (int, float)):
+                avail_times.append(float(data["available_at"]))
+            for key in ("requested_formats", "formats"):
+                fmt_list = data.get(key)
+                if isinstance(fmt_list, list):
+                    for f in fmt_list:
+                        if isinstance(f, dict) and isinstance(f.get("available_at"), (int, float)):
+                            avail_times.append(float(f["available_at"]))
+
+            if avail_times:
+                max_avail = max(avail_times)
+                now = time.time()
+                if max_avail > now:
+                    wait_total = max_avail - now + 0.4
+                    _show_ad_wait_countdown(wait_total)
+        except Exception:
+            pass
+
+    sys.stdout.write(out)
+    sys.stdout.flush()
+    return proc.returncode
+
+
+def _show_ad_wait_countdown(seconds: float) -> None:
+    """Mostra contagem regressiva quando o YouTube exige aguardar o tempo de anúncio."""
+    c_warn = THEME.ansi_fg("yellow", bold=True)
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    rst = THEME.reset
+    end_time = time.time() + seconds
+    try:
+        tty = open("/dev/tty", "w", encoding="utf-8")
+    except OSError:
+        tty = sys.stderr
+
+    try:
+        while True:
+            rem = end_time - time.time()
+            if rem <= 0:
+                break
+            tty.write(
+                f"\r  {c_warn}⏳ [omayt]{rst} Aguardando liberação de anúncio do YouTube: "
+                f"{c_acc}{rem:0.1f}s{rst} restantes...   "
+            )
+            tty.flush()
+            time.sleep(min(0.1, rem))
+        tty.write(f"\r  {THEME.ansi_fg('green', bold=True)}✓ [omayt]{rst} Stream liberado! Iniciando reprodução...                  \n")
+        tty.flush()
+    finally:
+        if tty is not sys.stderr:
+            tty.close()
+
+
+def load_json_file(path: Path, default: Any) -> Any:
+    if not path.is_file():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def save_json_file(path: Path, data: Any) -> None:
+    try:
+        tmp = path.with_suffix(f".tmp.{os.getpid()}")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+# ============================================================================
+# 3. DOWNLOAD PARALELO E RENDERIZAÇÃO DE THUMBNAILS (SIXEL / KITTY / CHAFA)
+# ============================================================================
+
+
+def thumb_path_for(video_id: str) -> Path:
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", video_id)
+    return THUMBS_DIR / f"{safe_id}.jpg"
+
+
+def download_single_thumb(video_id: str, fallback_url: str = "") -> Path | None:
+    if not video_id or video_id.startswith("__"):
+        return None
+    dest = thumb_path_for(video_id)
+    if dest.is_file() and dest.stat().st_size > 500:
+        return dest
+
+    urls = [
+        f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+        f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+    ]
+    if fallback_url and fallback_url not in urls:
+        urls.append(fallback_url)
+
+    for url in urls:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) omayt/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = resp.read()
+                if len(data) > 500:
+                    tmp = dest.with_suffix(f".tmp.{os.getpid()}.{threading_id()}")
+                    tmp.write_bytes(data)
+                    os.replace(tmp, dest)
+                    return dest
+        except Exception:
+            continue
+    return None
+
+
+def threading_id() -> int:
+    import threading
+    return threading.get_ident()
+
+
+def prefetch_thumbnails_async(video_ids: list[str]) -> None:
+    """Dispara processo em background para baixar todas as thumbnails da busca em paralelo."""
+    missing = [
+        vid for vid in video_ids
+        if vid and not vid.startswith("__") and not thumb_path_for(vid).is_file()
+    ]
+    if not missing:
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--internal-prefetch", *missing],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass
+
+
+def run_prefetch_worker(video_ids: list[str]) -> None:
+    ensure_dirs()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+        pool.map(download_single_thumb, video_ids)
+
+
+def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
+    """
+    Codifica a imagem em Sixel usando ffmpeg (raw RGB24) + libsixel.so.1 via ctypes.
+    Contorna o bug do binário `img2sixel` no Arch Linux com gdk-pixbuf2/glycin (que retorna 0 bytes).
+    """
+    px_w = max(160, min(px_width, 640))
+    px_h = int(px_w * 9 / 16)
+    # Sixel trabalha em faixas verticais de 6 pixels
+    px_h = (px_h // 6) * 6
+
+    lib_path = "/usr/lib/libsixel.so.1"
+    if os.path.exists(lib_path) and shutil.which("ffmpeg"):
+        try:
+            import ctypes
+
+            raw_rgb = subprocess.check_output(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(img_path),
+                    "-vf",
+                    f"scale={px_w}:{px_h}",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgb24",
+                    "-",
+                ],
+                stderr=subprocess.DEVNULL,
+                timeout=3.0,
+            )
+            if len(raw_rgb) == px_w * px_h * 3:
+                sys.stdout.flush()
+                lib = ctypes.CDLL(lib_path)
+                encoder = ctypes.c_void_p()
+                if lib.sixel_encoder_new(ctypes.byref(encoder), None) == 0:
+                    # SIXEL_PIXELFORMAT_RGB888 = 3
+                    res = lib.sixel_encoder_encode_bytes(
+                        encoder, raw_rgb, px_w, px_h, 3, None, -1
+                    )
+                    lib.sixel_encoder_unref(encoder)
+                    sys.stdout.flush()
+                    if res == 0:
+                        return True
+        except Exception:
+            pass
+
+    return False
+
+
+def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines: int) -> None:
+    """
+    Renderiza a thumbnail em alta definição no painel de preview do fzf:
+    1. Kitty Graphics Protocol (Kitty / Ghostty via `kitten icat`)
+    2. Sixel nativo via libsixel + ffmpeg (Foot / WezTerm / xterm)
+    3. Blocos Unicode TrueColor (`chafa`)
+    """
+    if not img_path.is_file():
+        return
+
+    cols = max(25, min(preview_cols - 2, 85))
+    img_rows = max(8, min(int(preview_lines * 0.48), 20))
+    px_width = max(220, min(cols * 7, 460))
+
+    is_kitty_or_ghostty = bool(
+        os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
+    )
+
+    if is_kitty_or_ghostty and shutil.which("kitten"):
+        dim = f"{cols}x{img_rows}@0x0"
+        proc = subprocess.run(
+            [
+                "kitten",
+                "icat",
+                "--clear",
+                "--transfer-mode=memory",
+                "--unicode-placeholder",
+                "--stdin=no",
+                f"--place={dim}",
+                str(img_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            lines = proc.stdout.splitlines()
+            if lines:
+                lines[-1] = lines[-1] + "\033[m"
+                sys.stdout.write("\n".join(lines) + "\n")
+                sys.stdout.flush()
+                return
+
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    if encode_image_to_sixel_stdout(img_path, px_width):
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return
+
+    if shutil.which("chafa"):
+        subprocess.run(
+            ["chafa", "-s", f"{cols}x{img_rows}", str(img_path)],
+            stdout=sys.stdout,
+            stderr=subprocess.DEVNULL,
+        )
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return
+
+
+# ============================================================================
+# 4. BUSCA NO YOUTUBE (DIRETA VIA YT-DLP COM FIX -TV_SAMSUNG)
+# ============================================================================
+
+
+def format_duration(seconds: Any) -> str:
+    if not seconds:
+        return "AO VIVO"
+    if isinstance(seconds, str):
+        return seconds
+    try:
+        sec = int(float(seconds))
+    except (ValueError, TypeError):
+        return "??:??"
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def format_views(count: Any) -> str:
+    if count is None or count == "":
+        return "—"
+    try:
+        n = int(count)
+    except (ValueError, TypeError):
+        return str(count)
+    if n >= 1_000_000_000:
+        return f"{n / 1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return f"{n:,}".replace(",", ".")
+
+
+def search_youtube(query: str, max_results: int = 20) -> list[dict[str, Any]]:
+    """
+    Pesquisa vídeos direto no YouTube usando yt_dlp em memória (ou binário yt-dlp)
+    com `player_client=default,-tv_samsung` e `extract_flat='in_playlist'` (super rápido!).
+    """
+    ensure_dirs()
+    query = query.strip()
+    if not query:
+        return []
+
+    record_search_history(query)
+    entries_raw: list[dict[str, Any]] = []
+
+    try:
+        import yt_dlp  # type: ignore
+
+        ydl_opts = {
+            "extract_flat": "in_playlist",
+            "skip_download": True,
+            "quiet": True,
+            "no_warnings": True,
+            "extractor_args": EXTRACTOR_ARGS_DICT,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            if isinstance(info, dict):
+                entries_raw = info.get("entries") or []
+    except Exception:
+        # Fallback via CLI
+        proc = subprocess.run(
+            [
+                YTDLP_BIN,
+                "--extractor-args",
+                EXTRACTOR_ARGS_CLI,
+                "--flat-playlist",
+                "-J",
+                "--no-warnings",
+                f"ytsearch{max_results}:{query}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            try:
+                info = json.loads(proc.stdout)
+                entries_raw = info.get("entries") or []
+            except Exception:
+                entries_raw = []
+
+    results: list[dict[str, Any]] = []
+    db = load_json_file(VIDEOS_DB_FILE, {})
+
+    for item in entries_raw:
+        if not isinstance(item, dict):
+            continue
+        vid = item.get("id") or ""
+        if not vid or len(vid) != 11:
+            continue
+
+        title = (item.get("title") or "Sem título").replace("\t", " ").replace("\n", " ").strip()
+        channel = (
+            item.get("channel")
+            or item.get("uploader")
+            or item.get("channel_id")
+            or "YouTube"
+        ).replace("\t", " ").strip()
+        duration = format_duration(item.get("duration") or item.get("duration_string"))
+        views_raw = item.get("view_count")
+        views_fmt = format_views(views_raw)
+        url = item.get("url") or f"https://www.youtube.com/watch?v={vid}"
+        if not url.startswith("http"):
+            url = f"https://www.youtube.com/watch?v={vid}"
+
+        thumbs = item.get("thumbnails") or []
+        thumb_url = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+        if isinstance(thumbs, list) and thumbs:
+            last_t = thumbs[-1]
+            if isinstance(last_t, dict) and last_t.get("url"):
+                thumb_url = last_t["url"]
+
+        desc = item.get("description") or ""
+        video_obj = {
+            "id": vid,
+            "title": title,
+            "channel": channel,
+            "duration": duration,
+            "views": views_fmt,
+            "views_raw": views_raw,
+            "url": url,
+            "thumb_url": thumb_url,
+            "description": desc,
+            "query": query,
+            "timestamp": time.strftime("%d/%m/%Y %H:%M"),
+        }
+        results.append(video_obj)
+        db[vid] = video_obj
+
+    save_json_file(VIDEOS_DB_FILE, db)
+    save_json_file(LAST_LIST_FILE, results)
+    save_json_file(STATE_FILE, {"mode": "search", "query": query, "count": len(results)})
+
+    # Baixar as primeiras 2 thumbnails imediatamente para preview instantâneo e o resto em background
+    first_ids = [r["id"] for r in results[:2]]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        pool.map(download_single_thumb, first_ids)
+    prefetch_thumbnails_async([r["id"] for r in results[2:]])
+
+    return results
+
+
+# ============================================================================
+# 5. HISTÓRICO DE VÍDEOS E PESQUISAS
+# ============================================================================
+
+
+def record_watch_history(video: dict[str, Any]) -> None:
+    hist: list[dict[str, Any]] = load_json_file(HISTORY_FILE, [])
+    vid = video.get("id")
+    hist = [v for v in hist if v.get("id") != vid]
+    entry = dict(video)
+    entry["watched_at"] = time.strftime("%d/%m/%Y %H:%M:%S")
+    hist.insert(0, entry)
+    save_json_file(HISTORY_FILE, hist[:100])
+
+
+def record_search_history(query: str) -> None:
+    hist: list[str] = load_json_file(SEARCH_HIST_FILE, [])
+    hist = [q for q in hist if q.lower() != query.lower()]
+    hist.insert(0, query)
+    save_json_file(SEARCH_HIST_FILE, hist[:50])
+
+
+# ============================================================================
+# 6. FORMATAÇÃO DA LISTA E DO PAINEL DE PREVIEW DA TUI
+# ============================================================================
+
+
+def format_tui_rows(videos: list[dict[str, Any]], header_note: str = "") -> str:
+    """
+    Formata as linhas para o fzf.
+    Coluna 1 (oculta com --with-nth=2..): ID do vídeo ou comando especial
+    Coluna 2 (visível): Linha estilizada com as cores do tema do Omarchy
+    """
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_fg = THEME.ansi_fg("foreground")
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    c_grn = THEME.ansi_fg("green")
+    c_mag = THEME.ansi_fg("magenta")
+    c_mut = THEME.ansi_fg("muted")
+    c_cyn = THEME.ansi_fg("cyan", bold=True)
+    rst = THEME.reset
+
+    lines: list[str] = []
+
+    # Linha 1 fixa: Ação de Busca ao Vivo no YouTube
+    search_hint = (
+        f" ({header_note})" if header_note else " (Digite acima e aperte Enter ou Ctrl+S)"
+    )
+    lines.append(
+        f"__SEARCH__\t{c_cyn}  [Pesquisar no YouTube o texto digitado acima]{rst}{c_mut}{search_hint}{rst}"
+    )
+
+    for idx, v in enumerate(videos, 1):
+        vid = v.get("id", "")
+        title = v.get("title", "Sem título")
+        if len(title) > 58:
+            title = title[:55] + "..."
+        channel = v.get("channel", "YouTube")
+        if len(channel) > 22:
+            channel = channel[:20] + ".."
+        dur = v.get("duration", "??:??")
+        views = v.get("views", "—")
+
+        row = (
+            f"{vid}\t"
+            f"{c_mut}{idx:02d}.{rst} "
+            f"{c_fg}{title:<58}{rst} "
+            f"{c_yel}[{dur:>7}]{rst} "
+            f"{c_grn}󰠃 {channel:<22}{rst} "
+            f"{c_mag}󰈈 {views:>6}{rst}"
+        )
+        lines.append(row)
+
+    if not videos:
+        lines.append(
+            f"__HISTORY__\t{c_acc}󰋚  [Nenhum vídeo carregado — digite sua pesquisa acima e aperte Enter ou Ctrl+S]{rst}"
+        )
+
+    return "\n".join(lines)
+
+
+def render_preview_pane(item_id: str, current_query: str = "") -> None:
+    """Renderiza o painel lateral direito da TUI (Thumbnail Sixel/Kitty + Metadados)."""
+    ensure_dirs()
+    cols = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 55)
+    lines = int(os.environ.get("FZF_PREVIEW_LINES") or 30)
+
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_fg = THEME.ansi_fg("foreground", bold=True)
+    c_txt = THEME.ansi_fg("light_foreground")
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    c_grn = THEME.ansi_fg("green", bold=True)
+    c_mag = THEME.ansi_fg("magenta", bold=True)
+    c_cyn = THEME.ansi_fg("cyan", bold=True)
+    c_red = THEME.ansi_fg("red", bold=True)
+    c_mut = THEME.ansi_fg("muted")
+    rst = THEME.reset
+
+    sep = f"{c_mut}{'─' * max(20, min(cols - 2, 72))}{rst}"
+
+    if item_id in ("__SEARCH__", "__HISTORY__") or not item_id:
+        state = load_json_file(STATE_FILE, {})
+        search_hist = load_json_file(SEARCH_HIST_FILE, [])
+        watch_hist = load_json_file(HISTORY_FILE, [])
+
+        print(f"\n {c_red}󰗃{rst} {c_acc}omayt • Omarchy YouTube TUI{rst} {c_mut}(v{APP_VERSION}){rst}")
+        print(f" {sep}")
+        if current_query.strip():
+            print(f"\n {c_cyn}  Pronto para pesquisar no YouTube:{rst}")
+            print(f"    {c_yel}“{current_query.strip()}”{rst}")
+            print(f"    {c_grn}↳ Pressione [Enter] ou [Ctrl+S] agora para buscar!{rst}")
+        else:
+            print(f"\n {c_cyn}  Como pesquisar:{rst}")
+            print(f"    {c_txt}1. Digite qualquer termo na barra de busca no topo{rst}")
+            print(f"    {c_txt}2. Aperte {c_yel}Enter{rst}{c_txt} (nesta linha) ou {c_yel}Ctrl+S{rst}{c_txt} (em qualquer linha){rst}")
+
+        print(f"\n {sep}")
+        print(f" {c_acc}⌨  Atalhos Rápidos da TUI:{rst}")
+        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland)")
+        print(f"   {c_yel}Alt+I{rst}    Assistir vídeo {c_grn}DENTRO do terminal{rst} (Sixel/Kitty pixels!)")
+        print(f"   {c_yel}Alt+B{rst}    Assistir vídeo no terminal em modo {c_cyn}Blocos TrueColor{rst} (tct)")
+        print(f"   {c_yel}Alt+A{rst}    Ouvir {c_mag}Apenas Áudio / Música{rst} no terminal")
+        print(f"   {c_yel}Alt+D{rst}    Baixar vídeo (MP4) para {c_txt}~/Videos/omayt{rst}")
+        print(f"   {c_yel}Alt+L{rst}    Copiar link do vídeo ({c_txt}wl-copy{rst})")
+        print(f"   {c_yel}Ctrl+S{rst}   Buscar no YouTube o texto digitado na barra")
+        print(f"   {c_yel}Ctrl+H{rst}   Abrir Histórico de vídeos assistidos ({len(watch_hist)} salvos)")
+        print(f"   {c_yel}Ctrl+F{rst}   Alternar filtro local da lista atual")
+        print(f"   {c_yel}Esc{rst}      Sair do omayt")
+
+        print(f"\n {sep}")
+        print(f" {c_grn}🛡️  Proteção Anti-AdBlock YouTube Ativa:{rst}")
+        print(f"   {c_txt}• Cliente: {c_cyn}default,-tv_samsung{rst} (evita bloqueio 403 da Smart TV)")
+        print(f"   {c_txt}• Ad-Wait Guard: detecta {c_yel}available_at{rst} e aguarda o anúncio se exigido")
+        print(f"   {c_txt}• Tema Omarchy ativo: {c_mag}{THEME.name}{rst}")
+
+        if search_hist:
+            print(f"\n {sep}")
+            print(f" {c_acc}󰋚  Últimas Pesquisas:{rst}")
+            for q in search_hist[:6]:
+                print(f"   {c_mut}•{rst} {c_txt}{q}{rst}")
+        return
+
+    db = load_json_file(VIDEOS_DB_FILE, {})
+    video = db.get(item_id)
+    if not video:
+        # Tentar achar no histórico
+        for h in load_json_file(HISTORY_FILE, []):
+            if h.get("id") == item_id:
+                video = h
+                break
+
+    if not video:
+        video = {
+            "id": item_id,
+            "title": f"Vídeo {item_id}",
+            "channel": "YouTube",
+            "duration": "—",
+            "views": "—",
+            "url": f"https://www.youtube.com/watch?v={item_id}",
+        }
+
+    # 1. Baixar (se necessário) e renderizar a Thumbnail no topo do preview!
+    img_path = download_single_thumb(item_id, video.get("thumb_url", ""))
+    if img_path and img_path.is_file():
+        render_thumbnail_to_stdout(img_path, cols, lines)
+    else:
+        print(f"\n {c_mut}[Thumbnail indisponível para {item_id}]{rst}\n")
+
+    # 2. Exibir Metadados Formatados abaixo da thumbnail
+    print(f" {sep}")
+    wrap_w = max(28, cols - 4)
+    wrapped_title = textwrap.wrap(video.get("title", "Sem título"), width=wrap_w)
+    for line in wrapped_title[:3]:
+        print(f" {c_fg}{line}{rst}")
+
+    print(f" {sep}")
+    print(f" {c_acc}󰠃 Canal    :{rst} {c_grn}{video.get('channel', '—')}{rst}")
+    print(
+        f" {c_acc}󰥔 Duração  :{rst} {c_yel}{video.get('duration', '—')}{rst}    "
+        f"{c_acc}󰈈 Views :{rst} {c_mag}{video.get('views', '—')}{rst}"
+    )
+    if video.get("watched_at"):
+        print(f" {c_acc}󰋚 Assistido:{rst} {c_cyn}{video['watched_at']}{rst}")
+    print(f" {c_acc}󰌷 Link     :{rst} {c_mut}{video.get('url', '')}{rst}")
+    print(f" {c_acc}🛡️ Stream   :{rst} {c_grn}player_client=default,-tv_samsung (Ad-Wait Ready){rst}")
+
+    desc = (video.get("description") or "").strip()
+    if desc:
+        print(f" {sep}")
+        for dline in textwrap.wrap(desc, width=wrap_w)[:3]:
+            print(f" {c_txt}{dline}{rst}")
+
+    print(f" {sep}")
+    print(
+        f" {c_yel}[Enter]{rst} MPV  "
+        f"{c_grn}[Alt+I]{rst} Vídeo no Terminal  "
+        f"{c_mag}[Alt+A]{rst} Áudio  "
+        f"{c_cyn}[Alt+D]{rst} Baixar"
+    )
+
+
+# ============================================================================
+# 7. PLAYERS (MPV JANELA, MPV INLINE TERMINAL SIXEL/KITTY, ÁUDIO, DOWNLOAD)
+# ============================================================================
+
+
+def get_video_info(video_id: str) -> dict[str, Any]:
+    db = load_json_file(VIDEOS_DB_FILE, {})
+    if video_id in db:
+        return db[video_id]
+    for h in load_json_file(HISTORY_FILE, []):
+        if h.get("id") == video_id:
+            return h
+    return {
+        "id": video_id,
+        "title": f"YouTube ({video_id})",
+        "channel": "YouTube",
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+    }
+
+
+def play_video(video_id: str, mode: str = "window") -> None:
+    """
+    Reproduz o vídeo selecionado usando mpv com:
+    1. Wrapper `omayt-ytdl` no `ytdl_hook-ytdl_path` (remove `tv_samsung` e aguarda `available_at` de anúncios)
+    2. `--ytdl-raw-options=extractor-args="youtube:player_client=default,-tv_samsung"`
+    3. `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5`
+    4. Fallback com espera automática de 4s caso o YouTube ainda bloqueie o primeiro acesso!
+    """
+    ensure_dirs()
+    video = get_video_info(video_id)
+    url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
+    title = video.get("title") or url
+
+    record_watch_history(video)
+
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_grn = THEME.ansi_fg("green", bold=True)
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    c_mut = THEME.ansi_fg("muted")
+    rst = THEME.reset
+
+    wrapper = ensure_ytdl_wrapper()
+
+    base_cmd = [
+        "mpv",
+        f"--script-opts=ytdl_hook-ytdl_path={wrapper}",
+        f"--ytdl-raw-options-append=extractor-args={EXTRACTOR_ARGS_CLI}",
+        "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5",
+        f"--force-media-title={title}",
+    ]
+
+    if mode == "inline-pixels":
+        is_kitty_or_ghostty = bool(
+            os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
+        )
+        if is_kitty_or_ghostty:
+            base_cmd.extend(["--vo=kitty", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol)"
+        else:
+            base_cmd.extend(["--vo=sixel", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot)"
+    elif mode == "inline-blocks":
+        base_cmd.extend(["--vo=tct", "--profile=sw-fast", "--really-quiet"])
+        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT)"
+    elif mode == "audio":
+        base_cmd.extend(["--no-video"])
+        mode_label = "Modo Só Áudio (Terminal)"
+    else:
+        base_cmd.extend(["--ytdl-format=bestvideo[height<=?1080]+bestaudio/best"])
+        mode_label = "Janela MPV (Wayland)"
+
+    base_cmd.append(url)
+
+    os.system("clear")
+    print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
+    print(f"  {c_yel}▶{rst} {title}")
+    print(f"  {c_mut}🛡️ Anti-AdBlock: player_client=default,-tv_samsung | URL: {url}{rst}")
+    if mode.startswith("inline"):
+        print(f"  {c_mut}💡 Dica: Aperte 'q' para parar o vídeo e voltar à TUI, 'espaço' para pausar, ←/→ para avançar.{rst}\n")
+    else:
+        print(f"  {c_mut}💡 Dica: Feche a janela do mpv (ou aperte 'q') para voltar à TUI do omayt.{rst}\n")
+
+    start_ts = time.time()
+    proc = subprocess.run(base_cmd)
+    elapsed = time.time() - start_ts
+
+    # Se o mpv falhou rapidamente (< 5s) com erro, pode ter sido bloqueio temporário de anúncio (HTTP 403).
+    # Fazemos a espera inteligente de 4 segundos e tentamos abrir novamente!
+    if proc.returncode != 0 and elapsed < 5.0:
+        print(
+            f"\n  {c_yel}⚠ O YouTube reteve o stream temporariamente por anúncio.{rst}"
+        )
+        _show_ad_wait_countdown(4.0)
+        subprocess.run(base_cmd)
+
+
+def download_video(video_id: str) -> None:
+    """Baixa o vídeo (ou áudio) usando yt-dlp com fix -tv_samsung."""
+    ensure_dirs()
+    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    video = get_video_info(video_id)
+    url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
+    title = video.get("title") or video_id
+
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_grn = THEME.ansi_fg("green", bold=True)
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    rst = THEME.reset
+
+    os.system("clear")
+    print(f"\n  {c_acc}󰇚 Download • omayt{rst}")
+    print(f"  {c_yel}Vídeo:{rst} {title}")
+    print(f"  {c_yel}Pasta:{rst} {DOWNLOAD_DIR}\n")
+    print(f"  Escolha o formato: {c_grn}[1] Vídeo MP4 (padrão){rst}  |  {c_acc}[2] Apenas Áudio MP3{rst}  |  [q] Cancelar")
+    try:
+        choice = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    if choice == "q":
+        return
+
+    cmd = [
+        YTDLP_BIN,
+        "--extractor-args",
+        EXTRACTOR_ARGS_CLI,
+        "-P",
+        str(DOWNLOAD_DIR),
+        "-o",
+        "%(title)s [%(id)s].%(ext)s",
+    ]
+    if choice == "2":
+        cmd.extend(["-x", "--audio-format", "mp3"])
+    else:
+        cmd.extend(["-f", "bestvideo[height<=?1080]+bestaudio/best", "--merge-output-format", "mp4"])
+
+    cmd.append(url)
+    print()
+    subprocess.run(cmd)
+    input(f"\n  {c_grn}✓ Processo concluído! Pressione Enter para voltar ao omayt...{rst}")
+
+
+def copy_link(video_id: str) -> None:
+    video = get_video_info(video_id)
+    url = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
+    if shutil.which("wl-copy"):
+        subprocess.run(["wl-copy", url], stderr=subprocess.DEVNULL)
+    if shutil.which("notify-send"):
+        subprocess.run(
+            ["notify-send", "omayt", f"Link copiado:\n{url}"],
+            stderr=subprocess.DEVNULL,
+        )
+
+
+# ============================================================================
+# 8. LOOP PRINCIPAL DA TUI (FZF + SIXEL PREVIEW + RELOAD AO VIVO)
+# ============================================================================
+
+
+def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
+    ensure_dirs()
+    ensure_global_ytdlp_fix()
+
+    if not shutil.which("fzf"):
+        sys.stderr.write("Erro: 'fzf' não está instalado.\n")
+        return 1
+
+    script = str(Path(__file__).resolve())
+    current_query = initial_query.strip()
+
+    if start_in_history:
+        videos = load_json_file(HISTORY_FILE, [])
+        save_json_file(LAST_LIST_FILE, videos)
+        prefetch_thumbnails_async([v.get("id", "") for v in videos])
+        header_note = "Histórico de Vídeos Assistidos"
+    elif current_query:
+        c_acc = THEME.ansi_fg("accent", bold=True)
+        rst = THEME.reset
+        sys.stderr.write(f"  {c_acc}󰗃 omayt:{rst} Pesquisando “{current_query}” no YouTube...\r")
+        sys.stderr.flush()
+        videos = search_youtube(current_query)
+        header_note = f"Busca: {current_query}"
+    else:
+        videos = load_json_file(LAST_LIST_FILE, [])
+        if not videos:
+            videos = load_json_file(HISTORY_FILE, [])
+            header_note = "Histórico Recente" if videos else ""
+        else:
+            state = load_json_file(STATE_FILE, {})
+            current_query = state.get("query", "")
+            header_note = f"Última busca: {current_query}" if current_query else ""
+        prefetch_thumbnails_async([v.get("id", "") for v in videos])
+
+    while True:
+        rows_text = format_tui_rows(videos, header_note)
+        load_pos = "pos(2)" if videos else "pos(1)"
+
+        header_bar = (
+            "Enter:Abrir/Buscar │ Ctrl-S:Buscar │ Alt-I:Vídeo no Terminal │ "
+            "Alt-B:Blocos │ Alt-A:Áudio │ Alt-D:Baixar │ Ctrl-H:Histórico"
+        )
+
+        label_query = f" • Busca: {current_query}" if current_query else ""
+
+        fzf_cmd = [
+            "fzf",
+            "--ansi",
+            "--disabled",
+            "--print-query",
+            "--layout=reverse",
+            "--height=100%",
+            "--border=rounded",
+            f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [Tema: {THEME.name}{label_query}] ",
+            "--border-label-pos=3",
+            "--preview-label= 󰥶 Thumbnail & Detalhes ",
+            "--delimiter=\t",
+            "--with-nth=2..",
+            "--prompt=  Pesquisar no YouTube > ",
+            f"--header={header_bar}",
+            "--header-first",
+            "--preview-window=right:50%:border-rounded:wrap",
+            f"--preview=python3 {script} --internal-preview {{1}} {{q}}",
+            f"--bind=load:{load_pos}",
+            "--bind=change:first",
+            "--bind=enter:print(enter)+accept",
+            "--bind=ctrl-s:print(search)+accept",
+            "--bind=ctrl-h:print(history)+accept",
+            "--bind=alt-i:print(alt-i)+accept",
+            "--bind=ctrl-t:print(ctrl-t)+accept",
+            "--bind=alt-b:print(alt-b)+accept",
+            "--bind=alt-a:print(alt-a)+accept",
+            "--bind=alt-d:print(alt-d)+accept",
+            "--bind=alt-l:print(alt-l)+accept",
+            "--bind=ctrl-f:toggle-search",
+            THEME.fzf_color_arg(),
+        ]
+
+        fzf_env = dict(os.environ)
+        fzf_env["SHELL"] = "/bin/sh"
+
+        proc = subprocess.run(
+            fzf_cmd,
+            input=rows_text,
+            stdout=subprocess.PIPE,
+            text=True,
+            env=fzf_env,
+        )
+
+        if proc.returncode != 0 and not proc.stdout:
+            break
+
+        out_lines = proc.stdout.splitlines()
+        typed_query = out_lines[0].strip() if len(out_lines) >= 1 else ""
+        action = out_lines[1].strip() if len(out_lines) >= 2 else "enter"
+        selected_line = out_lines[2] if len(out_lines) >= 3 else ""
+
+        video_id = (
+            selected_line.split("\t", 1)[0].strip()
+            if "\t" in selected_line
+            else ""
+        )
+
+        # 1. Ação de Histórico (Ctrl+H)
+        if action == "history" or (video_id == "__HISTORY__" and not typed_query):
+            videos = load_json_file(HISTORY_FILE, [])
+            save_json_file(LAST_LIST_FILE, videos)
+            prefetch_thumbnails_async([v.get("id", "") for v in videos])
+            header_note = "Histórico de Vídeos Assistidos"
+            current_query = ""
+            continue
+
+        # 2. Ação de Busca no YouTube (Ctrl+S ou Enter na 1ª linha __SEARCH__)
+        if action == "search" or video_id in ("__SEARCH__", "__HISTORY__") or not video_id:
+            q = typed_query
+            if not q:
+                c_acc = THEME.ansi_fg("accent", bold=True)
+                c_yel = THEME.ansi_fg("yellow", bold=True)
+                rst = THEME.reset
+                os.system("clear")
+                print(f"\n  {c_acc}󰗃 omayt • Nova Pesquisa no YouTube{rst}")
+                try:
+                    q = input(f"  {c_yel}  Digite sua busca:{rst} ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    continue
+            if q:
+                c_acc = THEME.ansi_fg("accent", bold=True)
+                rst = THEME.reset
+                os.system("clear")
+                print(f"\n  {c_acc}󰗃 omayt:{rst} Pesquisando “{q}” no YouTube e carregando thumbnails...")
+                videos = search_youtube(q)
+                current_query = q
+                header_note = f"Busca: {q}"
+            continue
+
+        # 3. Reproduzir / Baixar vídeo selecionado
+        if action in ("alt-i", "ctrl-t"):
+            play_video(video_id, mode="inline-pixels")
+        elif action == "alt-b":
+            play_video(video_id, mode="inline-blocks")
+        elif action == "alt-a":
+            play_video(video_id, mode="audio")
+        elif action == "alt-d":
+            download_video(video_id)
+        elif action == "alt-l":
+            copy_link(video_id)
+        else:
+            play_video(video_id, mode="window")
+
+        # Recarregar lista atualizada após voltar do player
+        videos = load_json_file(LAST_LIST_FILE, videos)
+
+    return 0
+
+
+# ============================================================================
+# 9. CLI & SUBCOMANDOS INTERNOS
+# ============================================================================
+
+
+def print_help() -> None:
+    c_acc = THEME.ansi_fg("accent", bold=True)
+    c_yel = THEME.ansi_fg("yellow", bold=True)
+    c_grn = THEME.ansi_fg("green", bold=True)
+    rst = THEME.reset
+    print(
+        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Thumbnails Sixel/Kitty + Anti-AdBlock 403)
+
+{c_yel}USO:{rst}
+  omayt                        Abre a TUI interativa do omayt
+  omayt <pesquisa>             Pesquisa direto no YouTube e abre a TUI com thumbnails
+  omayt -H / --history         Abre a TUI direto no Histórico de vídeos assistidos
+  omayt --fix-ytdlp            Aplica a correção do cliente tv_samsung no ~/.config/yt-dlp/config
+  omayt -h / --help            Mostra esta ajuda
+
+{c_grn}ATALHOS DENTRO DA TUI:{rst}
+  Enter                        Assistir vídeo no mpv (ou pesquisar quando na 1ª linha)
+  Ctrl+S                       Pesquisar no YouTube o texto digitado na barra do topo
+  Alt+I  (ou Ctrl+T)           Assistir vídeo DENTRO do próprio terminal (Sixel no Foot / Kitty)
+  Alt+B                        Assistir vídeo no terminal em modo blocos TrueColor (--vo=tct)
+  Alt+A                        Ouvir apenas o áudio (--no-video) no terminal
+  Alt+D                        Baixar vídeo (MP4) ou áudio (MP3) para ~/Videos/omayt
+  Alt+L                        Copiar link do vídeo para a área de transferência (wl-copy)
+  Ctrl+H                       Ver Histórico de vídeos assistidos
+  Ctrl+F                       Alternar filtro local da lista atual
+  Esc / Ctrl+C                 Sair
+"""
+    )
+
+
+def main(argv: list[str]) -> int:
+    ensure_dirs()
+    if not argv:
+        return run_tui()
+
+    cmd = argv[0]
+
+    if cmd in ("-h", "--help"):
+        print_help()
+        return 0
+
+    if cmd in ("-v", "--version"):
+        print(f"omayt {APP_VERSION}")
+        return 0
+
+    if cmd in ("-H", "--history"):
+        return run_tui(start_in_history=True)
+
+    if cmd == "--fix-ytdlp":
+        ensure_dirs()
+        ok = ensure_global_ytdlp_fix()
+        if ok:
+            print("✓ Configurado ~/.config/yt-dlp/config com: --extractor-args \"youtube:player_client=default,-tv_samsung\"")
+        else:
+            print("⚠ Não foi possível gravar em ~/.config/yt-dlp/config (rode fora de sandbox ou via install.sh).")
+        return 0 if ok else 1
+
+    # Subcomandos internos chamados pelo fzf e pelo mpv
+    if cmd == "--internal-search":
+        query = " ".join(argv[1:]).strip()
+        if query:
+            videos = search_youtube(query)
+            print(format_tui_rows(videos, f"Busca: {query}"))
+        else:
+            videos = load_json_file(LAST_LIST_FILE, []) or load_json_file(HISTORY_FILE, [])
+            print(format_tui_rows(videos, "Digite um termo acima e aperte Enter ou Ctrl+S"))
+        return 0
+
+    if cmd == "--internal-history":
+        videos = load_json_file(HISTORY_FILE, [])
+        save_json_file(LAST_LIST_FILE, videos)
+        prefetch_thumbnails_async([v.get("id", "") for v in videos])
+        print(format_tui_rows(videos, "Histórico de Vídeos Assistidos"))
+        return 0
+
+    if cmd == "--internal-preview":
+        item_id = argv[1] if len(argv) > 1 else ""
+        curr_q = " ".join(argv[2:]) if len(argv) > 2 else ""
+        render_preview_pane(item_id, curr_q)
+        return 0
+
+    if cmd == "--internal-prefetch":
+        run_prefetch_worker(argv[1:])
+        return 0
+
+    if cmd == "--sixel":
+        if len(argv) >= 2:
+            img_p = Path(argv[1])
+            w_px = int(argv[2]) if len(argv) >= 3 and argv[2].isdigit() else 320
+            if img_p.is_file():
+                encode_image_to_sixel_stdout(img_p, w_px)
+                sys.stdout.write("\n")
+        return 0
+
+    if cmd == "--internal-ytdl-hook":
+        return run_ytdl_hook_wrapper(argv[1:])
+
+    # Qualquer outro argumento é tratado como termo de busca inicial
+    return run_tui(initial_query=" ".join(argv))
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
