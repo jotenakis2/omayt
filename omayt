@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
 omayt - Omarchy YouTube TUI
-Pesquise, veja thumbnails em alta definição (Sixel / Kitty / Chafa) e assista vídeos
+Pesquise, veja thumbnails em alta definição (Sixel HD / Kitty / Chafa) e assista vídeos
 do YouTube direto no terminal do Omarchy, com proteção contra bloqueio 403 (tv_samsung / Ad-Wait)
-e seleção automática de codecs acelerados por hardware (VP9 / H.264 em vez de AV1).
+e aceleração de hardware VA-API (Intel Iris Xe / AMD / Mesa).
 """
 
 from __future__ import annotations
 
 import concurrent.futures
+import fcntl
 import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import textwrap
 import time
 import urllib.error
@@ -29,7 +32,7 @@ if os.path.exists(YTDLP_BIN) and YTDLP_BIN not in sys.path:
     sys.path.insert(0, YTDLP_BIN)
 
 APP_NAME = "omayt"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 
 
 def _resolve_writable_dir(preferred: Path, fallback_name: str) -> Path:
@@ -48,7 +51,8 @@ def _resolve_writable_dir(preferred: Path, fallback_name: str) -> Path:
 CACHE_DIR = _resolve_writable_dir(
     Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / APP_NAME, "cache"
 )
-THUMBS_DIR = CACHE_DIR / "thumbs"
+# Pasta thumbs_hd para garantir que thumbnails antigas 480x360 de baixa resolução não sejam reutilizadas
+THUMBS_DIR = CACHE_DIR / "thumbs_hd"
 VIDEOS_DB_FILE = CACHE_DIR / "videos_db.json"
 LAST_LIST_FILE = CACHE_DIR / "last_list.json"
 STATE_FILE = CACHE_DIR / "state.json"
@@ -223,7 +227,7 @@ def _import_ytfzf_history_if_empty() -> None:
                             "duration": item.get("duration") or "—",
                             "views": format_views(item.get("views")),
                             "url": f"https://www.youtube.com/watch?v={vid}",
-                            "thumb_url": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                            "thumb_url": f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg",
                             "description": item.get("description") or "",
                             "watched_at": item.get("viewed") or "",
                         }
@@ -237,8 +241,9 @@ def _import_ytfzf_history_if_empty() -> None:
 
 
 def ensure_global_ytdlp_fix() -> bool:
-    """Garante que ~/.config/yt-dlp/config tenha o fix do -tv_samsung e priorize H.264/VP9 sobre AV1."""
-    ytdlp_cfg_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "yt-dlp"
+    """Garante que ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf estejam otimizados."""
+    base_cfg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    ytdlp_cfg_dir = base_cfg / "yt-dlp"
     ytdlp_cfg = ytdlp_cfg_dir / "config"
     fix_line = '--extractor-args "youtube:player_client=default,-tv_samsung"'
     codec_line = '-S "vcodec:h264,vp9"'
@@ -251,7 +256,18 @@ def ensure_global_ytdlp_fix() -> bool:
                     f.write("\n")
                 f.write(f"# Adicionado pelo omayt para evitar bloqueio 403 de anúncio no cliente tv_samsung\n{fix_line}\n")
             if "vcodec:h264,vp9" not in existing:
-                f.write(f"# Priorizar codecs com aceleração de hardware (H.264/VP9) em vez de AV1\n{codec_line}\n")
+                f.write(f"# Priorizar codecs com aceleração de hardware (H.264/VP9)\n{codec_line}\n")
+
+        # Configurar VA-API no ~/.config/mpv/mpv.conf para evitar erro VK_KHR_video_decode_queue (Vulkan) em GPUs Intel/AMD
+        mpv_cfg_dir = base_cfg / "mpv"
+        mpv_cfg = mpv_cfg_dir / "mpv.conf"
+        mpv_cfg_dir.mkdir(parents=True, exist_ok=True)
+        mpv_existing = mpv_cfg.read_text(encoding="utf-8") if mpv_cfg.is_file() else ""
+        if "hwdec=" not in mpv_existing:
+            with mpv_cfg.open("a", encoding="utf-8") as f:
+                if mpv_existing and not mpv_existing.endswith("\n"):
+                    f.write("\n")
+                f.write("# Aceleração de hardware VA-API (evita falha do Vulkan Video VK_KHR_video_decode_queue)\nhwdec=vaapi,vaapi-copy\n")
         return True
     except OSError:
         return False
@@ -260,12 +276,6 @@ def ensure_global_ytdlp_fix() -> bool:
 def ensure_ytdl_wrapper() -> Path:
     """
     Cria o wrapper executável usado pelo ytdl_hook do mpv.
-    Esse wrapper faz três coisas críticas:
-      1. Força `--extractor-args youtube:player_client=default,-tv_samsung`
-      2. Prioriza codecs acelerados por hardware (`-S vcodec:h264,vp9`) evitando AV1 na CPU
-      3. Verifica se o JSON retornado pelo yt-dlp contém `available_at` no futuro
-         (bloqueio temporário de anúncio de 3-5s do YouTube) e AGUARDA com contagem
-         regressiva antes de entregar a URL ao ffmpeg do mpv, eliminando o HTTP 403!
     """
     script_path = Path(__file__).resolve()
     wrapper_code = f"""#!/usr/bin/env bash
@@ -284,7 +294,7 @@ def run_ytdl_hook_wrapper(args: list[str]) -> int:
     """
     Interceptador do yt-dlp para o mpv:
     - Injeta `--extractor-args youtube:player_client=default,-tv_samsung`
-    - Prioriza codecs H.264 e VP9 (`-S vcodec:h264,vp9`) para evitar AV1 na CPU
+    - Prioriza codecs H.264 e VP9 (`-S vcodec:h264,vp9`)
     - Se o YouTube exigir espera de anúncio (`available_at`), aguarda com barra
       regressiva no terminal antes de devolver o JSON para o mpv.
     """
@@ -373,7 +383,7 @@ def save_json_file(path: Path, data: Any) -> None:
 
 
 # ============================================================================
-# 3. DOWNLOAD PARALELO E RENDERIZAÇÃO DE THUMBNAILS (SIXEL / KITTY / CHAFA)
+# 3. DOWNLOAD PARALELO E RENDERIZAÇÃO DE THUMBNAILS HD (SIXEL / KITTY / CHAFA)
 # ============================================================================
 
 
@@ -383,15 +393,22 @@ def thumb_path_for(video_id: str) -> Path:
 
 
 def download_single_thumb(video_id: str, fallback_url: str = "") -> Path | None:
+    """
+    Baixa a thumbnail na maior resolução 16:9 disponível no YouTube:
+    1. maxresdefault.jpg (1280x720 Full HD 16:9 sem bordas pretas)
+    2. sddefault.jpg (640x480)
+    3. hqdefault.jpg (480x360)
+    """
     if not video_id or video_id.startswith("__"):
         return None
     dest = thumb_path_for(video_id)
-    if dest.is_file() and dest.stat().st_size > 500:
+    if dest.is_file() and dest.stat().st_size > 1000:
         return dest
 
     urls = [
+        f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg",
+        f"https://i.ytimg.com/vi/{video_id}/sddefault.jpg",
         f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
-        f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
     ]
     if fallback_url and fallback_url not in urls:
         urls.append(fallback_url)
@@ -400,11 +417,11 @@ def download_single_thumb(video_id: str, fallback_url: str = "") -> Path | None:
         try:
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) omayt/1.0"},
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) omayt/1.1"},
             )
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
                 data = resp.read()
-                if len(data) > 500:
+                if len(data) > 1000:
                     tmp = dest.with_suffix(f".tmp.{os.getpid()}.{threading_id()}")
                     tmp.write_bytes(data)
                     os.replace(tmp, dest)
@@ -420,7 +437,7 @@ def threading_id() -> int:
 
 
 def prefetch_thumbnails_async(video_ids: list[str]) -> None:
-    """Dispara processo em background para baixar todas as thumbnails da busca em paralelo."""
+    """Dispara processo em background para baixar todas as thumbnails HD da busca em paralelo."""
     missing = [
         vid for vid in video_ids
         if vid and not vid.startswith("__") and not thumb_path_for(vid).is_file()
@@ -444,20 +461,74 @@ def run_prefetch_worker(video_ids: list[str]) -> None:
         pool.map(download_single_thumb, video_ids)
 
 
-def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
+def _get_terminal_cell_pixel_size() -> tuple[float, float]:
     """
-    Codifica a imagem em Sixel usando ffmpeg (raw RGB24) + libsixel.so.1 via ctypes.
-    Contorna o bug do binário `img2sixel` no Arch Linux com gdk-pixbuf2/glycin (que retorna 0 bytes).
+    Obtém o tamanho exato em pixels de cada célula (caractere) do terminal via TIOCGWINSZ.
+    O terminal `foot` informa ws_xpixel e ws_ypixel exatos!
     """
-    px_w = max(160, min(px_width, 640))
+    for fd_path in ("/dev/tty",):
+        try:
+            with open(fd_path, "rb") as tty_f:
+                buf = fcntl.ioctl(tty_f.fileno(), termios.TIOCGWINSZ, b"\x00" * 8)
+                rows, cols, xpixel, ypixel = struct.unpack("HHHH", buf)
+                if rows > 0 and cols > 0 and xpixel > 0 and ypixel > 0:
+                    return (xpixel / cols, ypixel / rows)
+        except Exception:
+            pass
+    return (11.0, 22.0)
+
+
+def compute_optimal_thumb_px_width(preview_cols: int, preview_lines: int) -> int:
+    """
+    Calcula a largura ideal em pixels para a thumbnail ocupar toda a largura
+    do painel de preview sem empurrar os metadados para fora da tela.
+    """
+    cell_w, cell_h = _get_terminal_cell_pixel_size()
+    # Largura total em pixels do painel de preview (descontando 2 colunas de margem)
+    avail_w = int(max(30, preview_cols - 2) * cell_w)
+    # Altura máxima disponível para a imagem (reservando ~11 linhas para título e metadados abaixo)
+    avail_h = int(max(12, preview_lines - 11) * cell_h)
+    max_w_from_h = int(avail_h * 16 / 9)
+
+    px_w = min(avail_w, max_w_from_h)
+    # Arredondar para múltiplo de 32 para aproveitar cache de arquivo .sixel
+    px_w = (max(480, min(px_w, 1152)) // 32) * 32
+    return px_w
+
+
+def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 640) -> bool:
+    """
+    Codifica a imagem em Sixel HD usando:
+    - ffmpeg: corte automático de barras pretas 4:3 (`crop=iw:iw*9/16`),
+      redimensionamento Lanczos (`flags=lanczos`) e filtro de nitidez (`unsharp`)
+    - libsixel.so.1: quantização `high` de 256 cores com seleção por histograma (`s=histogram`)
+      e corte de luminosidade (`f=lum`), com cache em disco `.sixel` para exibição instantânea!
+    """
+    px_w = max(320, min(px_width, 1280))
     px_h = int(px_w * 9 / 16)
     px_h = (px_h // 6) * 6
+
+    THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+    sixel_cache = THUMBS_DIR / f"{img_path.stem}_{px_w}x{px_h}.sixel"
+    if sixel_cache.is_file() and sixel_cache.stat().st_size > 500:
+        try:
+            sys.stdout.flush()
+            sys.stdout.buffer.write(sixel_cache.read_bytes())
+            sys.stdout.buffer.flush()
+            return True
+        except Exception:
+            pass
 
     lib_path = "/usr/lib/libsixel.so.1"
     if os.path.exists(lib_path) and shutil.which("ffmpeg"):
         try:
             import ctypes
 
+            vf_chain = (
+                f"crop=iw:iw*9/16,"
+                f"scale={px_w}:{px_h}:flags=lanczos,"
+                f"unsharp=3:3:0.65:3:3:0.0"
+            )
             raw_rgb = subprocess.check_output(
                 [
                     "ffmpeg",
@@ -466,7 +537,7 @@ def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
                     "-i",
                     str(img_path),
                     "-vf",
-                    f"scale={px_w}:{px_h}",
+                    vf_chain,
                     "-f",
                     "rawvideo",
                     "-pix_fmt",
@@ -474,20 +545,37 @@ def encode_image_to_sixel_stdout(img_path: Path, px_width: int = 320) -> bool:
                     "-",
                 ],
                 stderr=subprocess.DEVNULL,
-                timeout=3.0,
+                timeout=4.0,
             )
             if len(raw_rgb) == px_w * px_h * 3:
-                sys.stdout.flush()
                 lib = ctypes.CDLL(lib_path)
                 encoder = ctypes.c_void_p()
                 if lib.sixel_encoder_new(ctypes.byref(encoder), None) == 0:
+                    tmp_sixel = sixel_cache.with_suffix(f".tmp.{os.getpid()}")
+                    opts = [
+                        (ord("q"), b"high"),
+                        (ord("p"), b"256"),
+                        (ord("s"), b"histogram"),
+                        (ord("f"), b"lum"),
+                        (ord("C"), b"2"),
+                        (ord("o"), str(tmp_sixel).encode("utf-8")),
+                    ]
+                    for flag, val in opts:
+                        lib.sixel_encoder_setopt(encoder, flag, ctypes.c_char_p(val))
+
                     res = lib.sixel_encoder_encode_bytes(
                         encoder, raw_rgb, px_w, px_h, 3, None, -1
                     )
                     lib.sixel_encoder_unref(encoder)
-                    sys.stdout.flush()
-                    if res == 0:
+
+                    if res == 0 and tmp_sixel.is_file() and tmp_sixel.stat().st_size > 100:
+                        os.replace(tmp_sixel, sixel_cache)
+                        sys.stdout.flush()
+                        sys.stdout.buffer.write(sixel_cache.read_bytes())
+                        sys.stdout.buffer.flush()
                         return True
+                    elif tmp_sixel.is_file():
+                        tmp_sixel.unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -498,15 +586,15 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
     """
     Renderiza a thumbnail em alta definição no painel de preview do fzf:
     1. Kitty Graphics Protocol (Kitty / Ghostty via `kitten icat`)
-    2. Sixel nativo via libsixel + ffmpeg (Foot / WezTerm / xterm)
+    2. Sixel HD nativo via libsixel + ffmpeg Lanczos (Foot / WezTerm / xterm)
     3. Blocos Unicode TrueColor (`chafa`)
     """
     if not img_path.is_file():
         return
 
-    cols = max(25, min(preview_cols - 2, 85))
-    img_rows = max(8, min(int(preview_lines * 0.48), 20))
-    px_width = max(220, min(cols * 7, 460))
+    cols = max(30, min(preview_cols - 2, 110))
+    img_rows = max(12, min(preview_lines - 11, 28))
+    px_width = compute_optimal_thumb_px_width(preview_cols, preview_lines)
 
     is_kitty_or_ghostty = bool(
         os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
@@ -537,8 +625,6 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
                 sys.stdout.flush()
                 return
 
-    sys.stdout.write("\n")
-    sys.stdout.flush()
     if encode_image_to_sixel_stdout(img_path, px_width):
         sys.stdout.write("\n")
         sys.stdout.flush()
@@ -666,7 +752,7 @@ def search_youtube(query: str, max_results: int = 20) -> list[dict[str, Any]]:
             url = f"https://www.youtube.com/watch?v={vid}"
 
         thumbs = item.get("thumbnails") or []
-        thumb_url = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+        thumb_url = f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
         if isinstance(thumbs, list) and thumbs:
             last_t = thumbs[-1]
             if isinstance(last_t, dict) and last_t.get("url"):
@@ -755,20 +841,20 @@ def format_tui_rows(videos: list[dict[str, Any]], header_note: str = "") -> str:
     for idx, v in enumerate(videos, 1):
         vid = v.get("id", "")
         title = v.get("title", "Sem título")
-        if len(title) > 58:
-            title = title[:55] + "..."
+        if len(title) > 52:
+            title = title[:49] + "..."
         channel = v.get("channel", "YouTube")
-        if len(channel) > 22:
-            channel = channel[:20] + ".."
+        if len(channel) > 18:
+            channel = channel[:16] + ".."
         dur = v.get("duration", "??:??")
         views = v.get("views", "—")
 
         row = (
             f"{vid}\t"
             f"{c_mut}{idx:02d}.{rst} "
-            f"{c_fg}{title:<58}{rst} "
+            f"{c_fg}{title:<52}{rst} "
             f"{c_yel}[{dur:>7}]{rst} "
-            f"{c_grn}󰠃 {channel:<22}{rst} "
+            f"{c_grn}󰠃 {channel:<18}{rst} "
             f"{c_mag}󰈈 {views:>6}{rst}"
         )
         lines.append(row)
@@ -782,10 +868,10 @@ def format_tui_rows(videos: list[dict[str, Any]], header_note: str = "") -> str:
 
 
 def render_preview_pane(item_id: str, current_query: str = "") -> None:
-    """Renderiza o painel lateral direito da TUI (Thumbnail Sixel/Kitty + Metadados)."""
+    """Renderiza o painel lateral direito da TUI (Thumbnail Sixel HD/Kitty + Metadados)."""
     ensure_dirs()
-    cols = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 55)
-    lines = int(os.environ.get("FZF_PREVIEW_LINES") or 30)
+    cols = int(os.environ.get("FZF_PREVIEW_COLUMNS") or 60)
+    lines = int(os.environ.get("FZF_PREVIEW_LINES") or 32)
 
     c_acc = THEME.ansi_fg("accent", bold=True)
     c_fg = THEME.ansi_fg("foreground", bold=True)
@@ -798,7 +884,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     c_mut = THEME.ansi_fg("muted")
     rst = THEME.reset
 
-    sep = f"{c_mut}{'─' * max(20, min(cols - 2, 72))}{rst}"
+    sep = f"{c_mut}{'─' * max(20, min(cols - 2, 76))}{rst}"
 
     if item_id in ("__SEARCH__", "__HISTORY__") or not item_id:
         search_hist = load_json_file(SEARCH_HIST_FILE, [])
@@ -817,7 +903,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
         print(f"\n {sep}")
         print(f" {c_acc}⌨  Atalhos Rápidos da TUI:{rst}")
-        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland • VP9/H.264 HW)")
+        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland • VA-API GPU)")
         print(f"   {c_yel}Alt+I{rst}    Assistir vídeo {c_grn}DENTRO do terminal{rst} (Sixel/Kitty pixels!)")
         print(f"   {c_yel}Alt+B{rst}    Assistir vídeo no terminal em modo {c_cyn}Blocos TrueColor{rst} (tct)")
         print(f"   {c_yel}Alt+A{rst}    Ouvir {c_mag}Apenas Áudio / Música{rst} no terminal")
@@ -829,11 +915,11 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         print(f"   {c_yel}Esc{rst}      Sair do omayt")
 
         print(f"\n {sep}")
-        print(f" {c_grn}🛡️  Otimizações & Proteção Anti-AdBlock Ativas:{rst}")
-        print(f"   {c_txt}• Cliente: {c_cyn}default,-tv_samsung{rst} (evita bloqueio 403 da Smart TV)")
-        print(f"   {c_txt}• Codec GPU: {c_grn}VP9 / H.264{rst} ({c_yel}[vcodec!^=av01]{rst} — evita travamento AV1 na CPU)")
-        print(f"   {c_txt}• Ad-Wait Guard: detecta {c_yel}available_at{rst} e aguarda o anúncio se exigido")
-        print(f"   {c_txt}• Tema Omarchy ativo: {c_mag}{THEME.name}{rst}")
+        print(f" {c_grn}🛡️  Otimizações de Vídeo & Thumbnails HD Ativas:{rst}")
+        print(f"   {c_txt}• GPU Decode: {c_grn}VA-API (Intel Iris Xe / Mesa){rst} — sem erro Vulkan Video")
+        print(f"   {c_txt}• Thumbnails: {c_cyn}1280x720 MaxRes + Lanczos + Unsharp + 256-Color Histogram{rst}")
+        print(f"   {c_txt}• Anti-403  : {c_yel}default,-tv_samsung + Ad-Wait Guard{rst}")
+        print(f"   {c_txt}• Tema ativo: {c_mag}{THEME.name}{rst}")
 
         if search_hist:
             print(f"\n {sep}")
@@ -869,26 +955,17 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
     wrapped_title = textwrap.wrap(video.get("title", "Sem título"), width=wrap_w)
-    for line in wrapped_title[:3]:
+    for line in wrapped_title[:2]:
         print(f" {c_fg}{line}{rst}")
 
     print(f" {sep}")
-    print(f" {c_acc}󰠃 Canal    :{rst} {c_grn}{video.get('channel', '—')}{rst}")
+    print(f" {c_acc}󰠃 Canal  :{rst} {c_grn}{video.get('channel', '—')}{rst}")
     print(
-        f" {c_acc}󰥔 Duração  :{rst} {c_yel}{video.get('duration', '—')}{rst}    "
-        f"{c_acc}󰈈 Views :{rst} {c_mag}{video.get('views', '—')}{rst}"
+        f" {c_acc}󰥔 Duração:{rst} {c_yel}{video.get('duration', '—')}{rst}   "
+        f"{c_acc}󰈈 Views:{rst} {c_mag}{video.get('views', '—')}{rst}"
     )
-    if video.get("watched_at"):
-        print(f" {c_acc}󰋚 Assistido:{rst} {c_cyn}{video['watched_at']}{rst}")
-    print(f" {c_acc}󰌷 Link     :{rst} {c_mut}{video.get('url', '')}{rst}")
-    print(f" {c_acc}🛡️ Stream   :{rst} {c_grn}VP9/H.264 HW (No-AV1) • Anti-403 Ativo{rst}")
-
-    desc = (video.get("description") or "").strip()
-    if desc:
-        print(f" {sep}")
-        for dline in textwrap.wrap(desc, width=wrap_w)[:3]:
-            print(f" {c_txt}{dline}{rst}")
-
+    print(f" {c_acc}󰌷 Link   :{rst} {c_mut}{video.get('url', '')}{rst}")
+    print(f" {c_acc}🛡️ Player :{rst} {c_grn}VA-API Hardware Decode • Anti-403 Ativo{rst}")
     print(f" {sep}")
     print(
         f" {c_yel}[Enter]{rst} MPV  "
@@ -899,7 +976,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
 
 # ============================================================================
-# 7. PLAYERS (MPV JANELA, MPV INLINE TERMINAL SIXEL/KITTY, ÁUDIO, DOWNLOAD)
+# 7. PLAYERS (MPV JANELA COM VA-API, MPV INLINE TERMINAL SIXEL/KITTY, ÁUDIO)
 # ============================================================================
 
 
@@ -921,10 +998,10 @@ def get_video_info(video_id: str) -> dict[str, Any]:
 def play_video(video_id: str, mode: str = "window") -> None:
     """
     Reproduz o vídeo selecionado usando mpv com:
-    1. Wrapper `omayt-ytdl` no `ytdl_hook-ytdl_path` (remove `tv_samsung`, prioriza H.264/VP9 e aguarda `available_at`)
-    2. Filtro `[vcodec!^=av01]` para ignorar AV1 e rodar liso na GPU sem travar o processador
-    3. `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5`
-    4. Fallback com espera automática de 4s caso o YouTube ainda bloqueie o primeiro acesso!
+    1. `--hwdec=vaapi,vaapi-copy` para usar decodificação de hardware nativa Intel Iris Xe / Mesa VA-API
+       (elimina completamente o erro `VK_KHR_video_decode_queue` do Vulkan Video e o `no frame!`)
+    2. Wrapper `omayt-ytdl` no `ytdl_hook-ytdl_path` (remove `tv_samsung` e aguarda `available_at`)
+    3. Filtro `[vcodec!^=av01]` para rodar H.264/VP9 super leve
     """
     ensure_dirs()
     video = get_video_info(video_id)
@@ -949,7 +1026,6 @@ def play_video(video_id: str, mode: str = "window") -> None:
         f"--force-media-title={title}",
     ]
 
-    # Ignora o codec AV1 ([vcodec!^=av01]) para pegar sempre VP9 ou H.264 (suportados via hardware pela GPU)
     no_av1_1080 = "bestvideo[height<=?1080][vcodec!^=av01]+bestaudio/best[vcodec!^=av01]/best"
     no_av1_720 = "bestvideo[height<=?720][vcodec!^=av01]+bestaudio/best[height<=?720][vcodec!^=av01]/best[vcodec!^=av01]/best"
 
@@ -958,27 +1034,27 @@ def play_video(video_id: str, mode: str = "window") -> None:
             os.environ.get("KITTY_WINDOW_ID") or os.environ.get("GHOSTTY_RESOURCES_DIR")
         )
         if is_kitty_or_ghostty:
-            base_cmd.extend(["--vo=kitty", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol • No-AV1)"
+            base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol • VA-API)"
         else:
-            base_cmd.extend(["--vo=sixel", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot • No-AV1)"
+            base_cmd.extend(["--vo=sixel", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot • VA-API)"
     elif mode == "inline-blocks":
-        base_cmd.extend(["--vo=tct", "--hwdec=no", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT • No-AV1)"
+        base_cmd.extend(["--vo=tct", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
+        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT • VA-API)"
     elif mode == "audio":
         base_cmd.extend(["--no-video"])
         mode_label = "Modo Só Áudio (Terminal)"
     else:
-        base_cmd.extend([f"--ytdl-format={no_av1_1080}"])
-        mode_label = "Janela MPV (Wayland • VP9/H.264 Acelerado por GPU)"
+        base_cmd.extend(["--hwdec=vaapi,vaapi-copy", f"--ytdl-format={no_av1_1080}"])
+        mode_label = "Janela MPV (Wayland • Aceleração de Hardware VA-API)"
 
     base_cmd.append(url)
 
     os.system("clear")
     print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
     print(f"  {c_yel}▶{rst} {title}")
-    print(f"  {c_mut}🛡️ Codec: VP9/H.264 ([vcodec!^=av01]) | Anti-AdBlock: default,-tv_samsung{rst}")
+    print(f"  {c_mut}🛡️ GPU Decode: VA-API (Intel Iris Xe) | Anti-AdBlock: default,-tv_samsung{rst}")
     if mode.startswith("inline"):
         print(f"  {c_mut}💡 Dica: Aperte 'q' para parar o vídeo e voltar à TUI, 'espaço' para pausar, ←/→ para avançar.{rst}\n")
     else:
@@ -1057,7 +1133,7 @@ def copy_link(video_id: str) -> None:
 
 
 # ============================================================================
-# 8. LOOP PRINCIPAL DA TUI (FZF + SIXEL PREVIEW + RELOAD AO VIVO)
+# 8. LOOP PRINCIPAL DA TUI (FZF + SIXEL HD PREVIEW + RELOAD AO VIVO)
 # ============================================================================
 
 
@@ -1116,13 +1192,13 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
             "--border=rounded",
             f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [Tema: {THEME.name}{label_query}] ",
             "--border-label-pos=3",
-            "--preview-label= 󰥶 Thumbnail & Detalhes ",
+            "--preview-label= 󰥶 Thumbnail HD & Detalhes ",
             "--delimiter=\t",
             "--with-nth=2..",
             "--prompt=  Pesquisar no YouTube > ",
             f"--header={header_bar}",
             "--header-first",
-            "--preview-window=right:50%:border-rounded:wrap",
+            "--preview-window=right:55%:border-rounded:wrap",
             f"--preview=python3 {script} --internal-preview {{1}} {{q}}",
             f"--bind=load:{load_pos}",
             "--bind=change:first",
@@ -1188,7 +1264,7 @@ def run_tui(initial_query: str = "", start_in_history: bool = False) -> int:
                 c_acc = THEME.ansi_fg("accent", bold=True)
                 rst = THEME.reset
                 os.system("clear")
-                print(f"\n  {c_acc}󰗃 omayt:{rst} Pesquisando “{q}” no YouTube e carregando thumbnails...")
+                print(f"\n  {c_acc}󰗃 omayt:{rst} Pesquisando “{q}” no YouTube e carregando thumbnails HD...")
                 videos = search_youtube(q)
                 current_query = q
                 header_note = f"Busca: {q}"
@@ -1223,17 +1299,17 @@ def print_help() -> None:
     c_grn = THEME.ansi_fg("green", bold=True)
     rst = THEME.reset
     print(
-        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Thumbnails Sixel/Kitty + Anti-AdBlock 403 + No-AV1)
+        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Thumbnails Sixel HD + Anti-AdBlock 403 + VA-API GPU)
 
 {c_yel}USO:{rst}
   omayt                        Abre a TUI interativa do omayt
-  omayt <pesquisa>             Pesquisa direto no YouTube e abre a TUI com thumbnails
+  omayt <pesquisa>             Pesquisa direto no YouTube e abre a TUI com thumbnails HD
   omayt -H / --history         Abre a TUI direto no Histórico de vídeos assistidos
-  omayt --fix-ytdlp            Aplica as correções (-tv_samsung e sem AV1) no ~/.config/yt-dlp/config
+  omayt --fix-ytdlp            Aplica as correções (-tv_samsung, sem AV1 e VA-API) no sistema
   omayt -h / --help            Mostra esta ajuda
 
 {c_grn}ATALHOS DENTRO DA TUI:{rst}
-  Enter                        Assistir vídeo no mpv (ou pesquisar quando na 1ª linha)
+  Enter                        Assistir vídeo no mpv com aceleração VA-API
   Ctrl+S                       Pesquisar no YouTube o texto digitado na barra do topo
   Alt+I  (ou Ctrl+T)           Assistir vídeo DENTRO do próprio terminal (Sixel no Foot / Kitty)
   Alt+B                        Assistir vídeo no terminal em modo blocos TrueColor (--vo=tct)
@@ -1269,9 +1345,9 @@ def main(argv: list[str]) -> int:
         ensure_dirs()
         ok = ensure_global_ytdlp_fix()
         if ok:
-            print("✓ Configurado ~/.config/yt-dlp/config com fix -tv_samsung e preferência de codec VP9/H.264 (No-AV1)")
+            print("✓ Configurado ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf (VA-API + Anti-403)")
         else:
-            print("⚠ Não foi possível gravar em ~/.config/yt-dlp/config (rode fora de sandbox ou via install.sh).")
+            print("⚠ Não foi possível gravar as configurações globais.")
         return 0 if ok else 1
 
     if cmd == "--internal-search":
@@ -1304,7 +1380,7 @@ def main(argv: list[str]) -> int:
     if cmd == "--sixel":
         if len(argv) >= 2:
             img_p = Path(argv[1])
-            w_px = int(argv[2]) if len(argv) >= 3 and argv[2].isdigit() else 320
+            w_px = int(argv[2]) if len(argv) >= 3 and argv[2].isdigit() else 640
             if img_p.is_file():
                 encode_image_to_sixel_stdout(img_p, w_px)
                 sys.stdout.write("\n")
