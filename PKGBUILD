@@ -1,8 +1,8 @@
 # Maintainer: sabb4th <eliassabat2@gmail.com>
 pkgname=omayt
-pkgver=1.0.0
+pkgver=1.3.0
 pkgrel=1
-pkgdesc="Omarchy YouTube TUI with HD Sixel/Kitty thumbnails, inline terminal video, and YouTube 403 Ad-Wait bypass"
+pkgdesc="Omarchy YouTube TUI with interactive startup menu, 30-by-30 paginated search, HD Sixel/Kitty thumbnails, Cava visualizer, VA-API, and YouTube 403 Ad-Wait bypass"
 arch=('any')
 url="https://github.com/sabb4th/omayt"
 license=('MIT')

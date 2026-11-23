@@ -1,6 +1,6 @@
 # 󰗃 omayt — Omarchy YouTube TUI
 
-[![Version](https://img.shields.io/badge/version-v1.0.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
+[![Version](https://img.shields.io/badge/version-v1.3.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
 [![Platform](https://img.shields.io/badge/platform-Omarchy%20%7C%20Arch%20Linux-a6e3a1?style=for-the-badge)](https://omarchy.org)
 [![License](https://img.shields.io/badge/license-MIT-f9e2af?style=for-the-badge)](./LICENSE)
 
@@ -28,11 +28,13 @@ O **`omayt`** resolve isso em **3 camadas**:
 ### 3. 🎨 Integração Nativa com os Temas do Omarchy
 - Lê automaticamente o tema ativo em `~/.local/state/omarchy/current/theme/colors.toml` e aplica a paleta exata do seu Omarchy nas bordas, textos, ícones e painel de preview da TUI.
 
-### 4. 🎬 4 Modos de Reprodução
-- **Janela MPV (`Enter`):** Abre o vídeo em alta resolução no `mpv` (Wayland) e retorna automaticamente para a TUI ao fechar.
+### 4. 🎬 Menu Inicial Estilizado, Busca Paginada (30 em 30) & 4 Modos de Reprodução
+- **Menu Principal Interativo (`omayt`):** Tela inicial com logo animado em gradiente TrueColor do tema Omarchy, busca rápida, retomada da última sessão, histórico, modo música, reprodução de link direto (com auto-detecção do clipboard), biblioteca de downloads e painel de diagnóstico.
+- **Busca Paginada de 30 em 30 (`Alt+M` / `Ctrl+E`):** Cada pesquisa carrega os primeiros **30 resultados** e permite pressionar `Alt+M` (ou `Ctrl+E`, ou selecionar `[+ Carregar mais 30 resultados]` no fim da lista) para carregar **+30** sob demanda, mantendo a ordem dos vídeos anteriores.
+- **Janela MPV (`Enter`):** Abre o vídeo em alta resolução no `mpv` (Wayland + aceleração de hardware **VA-API**) e retorna automaticamente para a TUI ao fechar.
 - **Vídeo Inline em Pixels no Terminal (`Alt+I` ou `Ctrl+T`):** Reproduz o vídeo **dentro da própria janela do terminal** usando `mpv --vo=sixel` (no Foot) ou `mpv --vo=kitty` (no Kitty/Ghostty).
 - **Vídeo em Blocos TrueColor (`Alt+B`):** Reproduz o vídeo no terminal em modo pixel-art/blocos (`mpv --vo=tct`).
-- **Modo Só Áudio / Música (`Alt+A`):** Reproduz apenas o áudio (`mpv --no-video`) no terminal.
+- **Modo Só Áudio / Música + Visualizador Cava (`Alt+A`):** Reproduz o áudio no terminal com um **visualizador de espectro FFT 60 FPS estilo Cava** sincronizado via PipeWire/PulseAudio.
 
 ---
 
@@ -79,10 +81,13 @@ makepkg -si
 ## ⌨️ Como Usar e Atalhos
 
 ```bash
-# Abrir a TUI interativa
+# Abrir o Menu Principal interativo
 omayt
 
-# Abrir já pesquisando um termo no YouTube
+# Pular o menu inicial e abrir direto a TUI (fzf)
+omayt --no-menu
+
+# Abrir já pesquisando um termo no YouTube (30 resultados iniciais)
 omayt "omarchy linux"
 
 # Abrir direto no histórico de vídeos assistidos
@@ -96,16 +101,18 @@ omayt --sixel caminho/para/imagem.jpg 360
 
 | Atalho | Ação |
 | :--- | :--- |
-| **`Enter`** | Assistir ao vídeo no **`mpv`** *(ou buscar no YouTube quando na 1ª linha ``)* |
-| **`Ctrl+S`** | **Pesquisar no YouTube** o texto digitado na barra do topo |
+| **`Enter`** | Assistir ao vídeo no **`mpv`** *(ou buscar no YouTube na 1ª linha `` / carregar +30 na última linha `󰐕`)* |
+| **`Ctrl+S`** | **Pesquisar no YouTube** o texto digitado na barra do topo *(30 resultados)* |
+| **`Alt+M`** *(ou `Ctrl+E`)* | **Carregar mais 30 resultados** para a busca atual *(30 em 30)* |
 | **`Alt+I`** *(ou `Ctrl+T`)* | Assistir ao vídeo **DENTRO do próprio terminal** em pixels reais (`--vo=sixel` / `--vo=kitty`) |
 | **`Alt+B`** | Assistir ao vídeo dentro do terminal em **blocos TrueColor** (`--vo=tct`) |
-| **`Alt+A`** | Tocar **apenas o áudio / música** (`--no-video`) no terminal |
+| **`Alt+A`** | Tocar **apenas o áudio / música** com **visualizador Cava 60 FPS** no terminal |
+| **`Alt+W`** | Forçar abertura na **janela MPV** *(útil quando no Modo Música)* |
 | **`Alt+D`** | Baixar o vídeo (MP4) ou áudio (MP3) para `~/Videos/omayt` |
 | **`Alt+L`** | Copiar o link do vídeo para a área de transferência (`wl-copy`) |
 | **`Ctrl+H`** | Abrir o **Histórico** de vídeos assistidos (com thumbnails) |
 | **`Ctrl+F`** | Alternar filtro local na lista atual |
-| **`Esc` / `Ctrl+C`** | Sair do `omayt` |
+| **`Esc` / `Ctrl+C`** | Voltar ao Menu Principal *(ou sair)* |
 
 ---
 
