@@ -158,18 +158,17 @@ omayt -h
 
 ### 🌍 Interface language
 
-The interface ships in **English** (default), **French** and **Brazilian Portuguese** — main menu, `fzf` labels, preview pane, player banners and `--help`. Pick one with `OMAYT_LANG`:
+The interface ships in **English**, **French** and **Brazilian Portuguese** — main menu, `fzf` labels, preview pane, player banners and `--help`. It is picked in this order:
+
+1. `OMAYT_LANG` (`fr`, `pt`, plus `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), which always wins;
+2. the language saved with **`l`** in **[7] Settings & Diagnostics**;
+3. your system locale (`LANG` / `LC_MESSAGES`), so a French or Brazilian desktop starts in that language;
+4. English otherwise.
 
 ```bash
-# Try it for a single run
-OMAYT_LANG=fr omayt
+# One run only, without touching the saved preference
 OMAYT_LANG=pt omayt
-
-# Make it permanent (zsh example)
-echo 'export OMAYT_LANG=fr' >> ~/.zshrc
 ```
-
-`fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`… are accepted too; any other value (or no value) keeps English, so nothing changes for existing setups.
 
 ---
 

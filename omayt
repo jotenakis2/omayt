@@ -42,31 +42,6 @@ APP_NAME = "omayt"
 APP_VERSION = "1.3.0"
 SEARCH_PAGE_SIZE = 30
 
-# ============================================================================
-# 0. UI LANGUAGE (English by default, OMAYT_LANG=fr|pt to switch)
-# ============================================================================
-
-UI_LANGS = ("en", "fr", "pt")
-
-
-def _resolve_ui_lang() -> str:
-    raw = (os.environ.get("OMAYT_LANG") or "en").strip().lower().replace("_", "-")
-    code = raw.split(".")[0].split("-")[0]
-    return code if code in UI_LANGS else "en"
-
-
-APP_LANG = _resolve_ui_lang()
-
-
-def tr(en: str, fr: str, pt: str) -> str:
-    """Returns the string for the active UI language (English is the reference)."""
-    if APP_LANG == "fr":
-        return fr
-    if APP_LANG == "pt":
-        return pt
-    return en
-
-
 def _resolve_writable_dir(preferred: Path, fallback_name: str) -> Path:
     try:
         preferred.mkdir(parents=True, exist_ok=True)
@@ -95,6 +70,94 @@ CONFIG_DIR = _resolve_writable_dir(
 HISTORY_FILE = CONFIG_DIR / "watch_history.json"
 SEARCH_HIST_FILE = CONFIG_DIR / "search_history.json"
 DOWNLOAD_DIR = Path.home() / "Videos" / "omayt"
+
+# ============================================================================
+# 1. UI LANGUAGE (OMAYT_LANG > Settings > system locale > English)
+# ============================================================================
+
+UI_LANGS = ("en", "fr", "pt")
+LANG_NAMES = {"en": "English", "fr": "Français", "pt": "Português (Brasil)"}
+SETTINGS_FILE = CONFIG_DIR / "settings.json"
+
+
+def _lang_code(raw: str) -> str | None:
+    """Extracts a supported language code from a locale-ish string ("fr_FR.UTF-8" -> "fr")."""
+    code = raw.strip().lower().replace("_", "-").split(".")[0].split("@")[0].split("-")[0]
+    return code if code in UI_LANGS else None
+
+
+def _env_ui_lang() -> str | None:
+    return _lang_code(os.environ.get("OMAYT_LANG") or "")
+
+
+def _read_settings() -> dict[str, Any]:
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _saved_ui_lang() -> str | None:
+    lang = _read_settings().get("lang")
+    return lang if lang in UI_LANGS else None
+
+
+def _locale_ui_lang() -> str | None:
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        code = _lang_code(os.environ.get(var) or "")
+        if code:
+            return code
+    return None
+
+
+def _resolve_ui_lang() -> tuple[str, str]:
+    """Returns (language, source) with source in {"env", "settings", "locale", "default"}."""
+    env = _env_ui_lang()
+    if env:
+        return env, "env"
+    saved = _saved_ui_lang()
+    if saved:
+        return saved, "settings"
+    locale_lang = _locale_ui_lang()
+    if locale_lang:
+        return locale_lang, "locale"
+    return "en", "default"
+
+
+APP_LANG, APP_LANG_SOURCE = _resolve_ui_lang()
+
+
+def tr(en: str, fr: str, pt: str) -> str:
+    """Returns the string for the active UI language (English is the reference)."""
+    if APP_LANG == "fr":
+        return fr
+    if APP_LANG == "pt":
+        return pt
+    return en
+
+
+def save_ui_lang(code: str) -> bool:
+    """Persists the language choice and applies it; False when OMAYT_LANG overrides it."""
+    global APP_LANG, APP_LANG_SOURCE
+    if code not in UI_LANGS:
+        return False
+    settings = _read_settings()
+    settings["lang"] = code
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
+    env = _env_ui_lang()
+    if env:
+        APP_LANG, APP_LANG_SOURCE = env, "env"
+        return False
+    APP_LANG, APP_LANG_SOURCE = code, "settings"
+    return True
+
 
 EXTRACTOR_ARGS_CLI = "youtube:player_client=default,-tv_samsung"
 EXTRACTOR_ARGS_DICT = {"youtube": {"player_client": ["default", "-tv_samsung"]}}
@@ -3122,6 +3185,38 @@ class OmarchyMainMenu:
             lines.append(lm + self._box_line(f"  {swatches}", inner_w, b_col))
             lines.append(lm + self._box_div(inner_w, dim_b))
 
+            lang_src = {
+                "env": tr("forced by OMAYT_LANG", "forcé par OMAYT_LANG", "forçado por OMAYT_LANG"),
+                "settings": tr("saved here", "enregistré ici", "salvo aqui"),
+                "locale": tr("from the system locale", "d'après la locale système", "da locale do sistema"),
+                "default": tr("default", "par défaut", "padrão"),
+            }[APP_LANG_SOURCE]
+            lang_label = tr("Interface language:", "Langue de l’interface :", "Idioma da interface:")
+            lines.append(
+                lm
+                + self._box_line(
+                    f"{c_acc}🌍 {lang_label}{rst} {c_fg}{LANG_NAMES[APP_LANG]}{rst} "
+                    f"{c_mut}({APP_LANG}, {lang_src}){rst}",
+                    inner_w,
+                    b_col,
+                )
+            )
+            lang_hint = tr("switch", "changer", "trocar")
+            env_warning = (
+                ""
+                if APP_LANG_SOURCE != "env"
+                else f"  {c_red}{tr('OMAYT_LANG has priority', 'OMAYT_LANG a la priorité', 'OMAYT_LANG tem prioridade')}{rst}"
+            )
+            lines.append(
+                lm
+                + self._box_line(
+                    f"   {c_yel}[l]{rst} {c_mut}{lang_hint}{rst}{env_warning}",
+                    inner_w,
+                    b_col,
+                )
+            )
+            lines.append(lm + self._box_div(inner_w, dim_b))
+
             lines.append(lm + self._box_line(f"{c_acc}{tr('Local Storage:', 'Stockage local :', 'Armazenamento local:')}{rst}", inner_w, b_col))
             lines.append(
                 lm + self._box_line(
@@ -3217,6 +3312,17 @@ class OmarchyMainMenu:
             elif key in ("h", "H"):
                 save_json_file(SEARCH_HIST_FILE, [])
                 feedback = tr("Recent search history cleared.", "Historique des recherches récentes effacé.", 'Histórico de buscas recentes limpo.')
+            elif key in ("l", "L"):
+                next_lang = UI_LANGS[(UI_LANGS.index(APP_LANG) + 1) % len(UI_LANGS)]
+                if not save_ui_lang(next_lang):
+                    env_lang = _env_ui_lang() or ""
+                    feedback = tr(
+                        f"{LANG_NAMES[next_lang]} saved, but OMAYT_LANG={env_lang} has priority.",
+                        f"{LANG_NAMES[next_lang]} enregistré, mais OMAYT_LANG={env_lang} a la priorité.",
+                        f"{LANG_NAMES[next_lang]} salvo, mas OMAYT_LANG={env_lang} tem prioridade.",
+                    )
+                else:
+                    feedback = ""
 
     def run(self) -> int:
         ensure_dirs()
@@ -3750,9 +3856,9 @@ def print_help() -> None:
         "",
         f"  {c_yel}OMAYT_LANG=fr|pt{rst} "
         + tr(
-            "switches the interface language (English is the default).",
-            "choisit la langue de l’interface (anglais par défaut).",
-            "escolhe o idioma da interface (inglês é o padrão).",
+            "picks the interface language (also settable in Settings; the system locale is the fallback).",
+            "choisit la langue de l’interface (aussi réglable dans les Paramètres ; la locale système sert de repli).",
+            "escolhe o idioma da interface (também ajustável nos Ajustes; a locale do sistema é o fallback).",
         ),
     ]
     print("\n".join(lines))

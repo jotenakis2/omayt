@@ -158,18 +158,17 @@ omayt -h
 
 ### 🌍 Langue de l'interface
 
-L'interface est livrée en **anglais** (par défaut), en **français** et en **portugais du Brésil** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Choisissez avec `OMAYT_LANG` :
+L'interface est livrée en **anglais**, en **français** et en **portugais du Brésil** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Elle est choisie dans cet ordre :
+
+1. `OMAYT_LANG` (`fr`, `pt`, ainsi que `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), toujours prioritaire ;
+2. la langue enregistrée avec **`l`** dans **[7] Paramètres & diagnostics** ;
+3. votre locale système (`LANG` / `LC_MESSAGES`), donc un bureau français ou brésilien démarre dans cette langue ;
+4. l'anglais sinon.
 
 ```bash
-# L'essayer le temps d'un lancement
-OMAYT_LANG=fr omayt
+# Pour un seul lancement, sans toucher au réglage enregistré
 OMAYT_LANG=pt omayt
-
-# Le rendre permanent (exemple zsh)
-echo 'export OMAYT_LANG=fr' >> ~/.zshrc
 ```
-
-`fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`… sont aussi acceptés ; toute autre valeur (ou aucune) conserve l'anglais, donc rien ne change pour les installations existantes.
 
 ---
 
