@@ -638,15 +638,17 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            text=True,
         )
         if proc.returncode == 0 and proc.stdout:
-            lines = proc.stdout.splitlines()
-            if lines:
-                lines[-1] = lines[-1] + "\033[m"
-                sys.stdout.write("\n".join(lines) + "\n")
-                sys.stdout.flush()
-                return
+            # Bytes on purpose: kitten separates the placeholder rows with
+            # "\n\r". Decoding as text (universal newlines + str.splitlines)
+            # turns that CR into a second line break and inserts a blank line
+            # between every image row, which makes the thumbnail show up as a
+            # striped/gridded image inside the fzf preview window.
+            sys.stdout.flush()
+            sys.stdout.buffer.write(proc.stdout + b"\033[m\n")
+            sys.stdout.buffer.flush()
+            return
 
     if encode_image_to_sixel_stdout(img_path, px_width):
         sys.stdout.write("\n")
