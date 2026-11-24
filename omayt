@@ -3854,11 +3854,11 @@ def print_help() -> None:
             "Voltar ao menu principal (ou sair)",
         ),
         "",
-        f"  {c_yel}OMAYT_LANG=fr|pt{rst} "
+        f"  {c_yel}OMAYT_LANG=en|fr|pt{rst} "
         + tr(
-            "picks the interface language (also settable in Settings; the system locale is the fallback).",
-            "choisit la langue de l’interface (aussi réglable dans les Paramètres ; la locale système sert de repli).",
-            "escolhe o idioma da interface (também ajustável nos Ajustes; a locale do sistema é o fallback).",
+            "picks the interface language: en, fr or pt (English is the fallback; also settable in Settings).",
+            "choisit la langue de l’interface : en, fr ou pt (anglais par défaut ; aussi réglable dans les Paramètres).",
+            "escolhe o idioma da interface: en, fr ou pt (inglês por padrão; também ajustável nos Ajustes).",
         ),
     ]
     print("\n".join(lines))

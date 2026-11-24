@@ -160,7 +160,7 @@ omayt -h
 
 The interface ships in **English**, **French** and **Brazilian Portuguese** — main menu, `fzf` labels, preview pane, player banners and `--help`. It is picked in this order:
 
-1. `OMAYT_LANG` (`fr`, `pt`, plus `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), which always wins;
+1. `OMAYT_LANG` (`en`, `fr`, `pt`, plus `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), which always wins;
 2. the language saved with **`l`** in **[7] Settings & Diagnostics**;
 3. your system locale (`LANG` / `LC_MESSAGES`), so a French or Brazilian desktop starts in that language;
 4. English otherwise.

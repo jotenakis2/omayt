@@ -160,7 +160,7 @@ omayt -h
 
 L'interface est livrée en **anglais**, en **français** et en **portugais du Brésil** — menu principal, libellés `fzf`, volet d'aperçu, bandeaux des lecteurs et `--help`. Elle est choisie dans cet ordre :
 
-1. `OMAYT_LANG` (`fr`, `pt`, ainsi que `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), toujours prioritaire ;
+1. `OMAYT_LANG` (`en`, `fr`, `pt`, ainsi que `fr_FR`, `fr-CA`, `pt_BR`, `pt-PT`…), toujours prioritaire ;
 2. la langue enregistrée avec **`l`** dans **[7] Paramètres & diagnostics** ;
 3. votre locale système (`LANG` / `LC_MESSAGES`), donc un bureau français ou brésilien démarre dans cette langue ;
 4. l'anglais sinon.
