@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 omayt - Omarchy YouTube TUI
-Pesquise, veja thumbnails em alta definição (Sixel HD / Kitty / Chafa) e assista vídeos
-do YouTube direto no terminal do Omarchy, com proteção contra bloqueio 403 (tv_samsung / Ad-Wait),
-aceleração de hardware VA-API (Intel Iris Xe / AMD / Mesa) e visualizador de áudio estilo Cava!
+Search, view high-definition thumbnails (Sixel HD / Kitty / Chafa) and watch videos
+from YouTube right in the Omarchy terminal, with protection against 403 blocks (tv_samsung / Ad-Wait),
+VA-API hardware acceleration (Intel Iris Xe / AMD / Mesa) and a Cava-style audio visualizer!
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-# Permitir importar yt_dlp diretamente do binário zipapp do sistema (/usr/bin/yt-dlp)
+# Allow importing yt_dlp directly from the system zipapp binary (/usr/bin/yt-dlp)
 YTDLP_BIN = shutil.which("yt-dlp") or "/usr/bin/yt-dlp"
 if os.path.exists(YTDLP_BIN) and YTDLP_BIN not in sys.path:
     sys.path.insert(0, YTDLP_BIN)
@@ -77,7 +77,7 @@ EXTRACTOR_ARGS_DICT = {"youtube": {"player_client": ["default", "-tv_samsung"]}}
 
 
 # ============================================================================
-# 1. INTEGRAÇÃO COM O TEMA DO OMARCHY
+# 1. OMARCHY THEME INTEGRATION
 # ============================================================================
 
 DEFAULT_COLORS = {
@@ -103,7 +103,7 @@ DEFAULT_COLORS = {
 
 
 class OmarchyTheme:
-    """Lê automaticamente a paleta de cores do tema ativo do Omarchy."""
+    """Automatically reads the color palette of the active Omarchy theme."""
 
     def __init__(self) -> None:
         self.name = "Omarchy"
@@ -186,7 +186,7 @@ class OmarchyTheme:
         return "\033[0m"
 
     def build_gradient(self, steps: int) -> list[str]:
-        """Gera um gradiente vertical suave de cores baseado no tema atual do Omarchy."""
+        """Generates a smooth vertical color gradient based on the current Omarchy theme."""
         stops = [
             self.rgb("cyan"),
             self.rgb("blue"),
@@ -243,7 +243,7 @@ THEME = OmarchyTheme()
 
 
 # ============================================================================
-# 2. UTILITÁRIOS DE DIRETÓRIO, BANCO DE DADOS E WRAPPER ANTI-ADBLOCK (403)
+# 2. DIRECTORY, DATABASE AND ANTI-ADBLOCK (403) WRAPPER UTILITIES
 # ============================================================================
 
 
@@ -259,7 +259,7 @@ def ensure_dirs() -> None:
 
 
 def _import_ytfzf_history_if_empty() -> None:
-    """Importa histórico existente do ytfzf na primeira execução para a TUI já iniciar populada."""
+    """Imports existing ytfzf history on first run so the TUI starts populated."""
     if HISTORY_FILE.is_file():
         return
     ytfzf_hist = Path.home() / ".cache" / "ytfzf" / "watch_hist"
@@ -303,7 +303,7 @@ def _import_ytfzf_history_if_empty() -> None:
 
 
 def ensure_global_ytdlp_fix() -> bool:
-    """Garante que ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf estejam otimizados."""
+    """Ensures ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf are optimized."""
     base_cfg = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     ytdlp_cfg_dir = base_cfg / "yt-dlp"
     ytdlp_cfg = ytdlp_cfg_dir / "config"
@@ -316,9 +316,9 @@ def ensure_global_ytdlp_fix() -> bool:
             if "-tv_samsung" not in existing:
                 if existing and not existing.endswith("\n"):
                     f.write("\n")
-                f.write(f"# Adicionado pelo omayt para evitar bloqueio 403 de anúncio no cliente tv_samsung\n{fix_line}\n")
+                f.write(f"# Added by omayt to avoid 403 ad blocks on the tv_samsung client\n{fix_line}\n")
             if "vcodec:h264,vp9" not in existing:
-                f.write(f"# Priorizar codecs com aceleração de hardware (H.264/VP9)\n{codec_line}\n")
+                f.write(f"# Prioritize hardware-accelerated codecs (H.264/VP9)\n{codec_line}\n")
 
         mpv_cfg_dir = base_cfg / "mpv"
         mpv_cfg = mpv_cfg_dir / "mpv.conf"
@@ -328,14 +328,14 @@ def ensure_global_ytdlp_fix() -> bool:
             with mpv_cfg.open("a", encoding="utf-8") as f:
                 if mpv_existing and not mpv_existing.endswith("\n"):
                     f.write("\n")
-                f.write("# Aceleração de hardware VA-API (evita falha do Vulkan Video VK_KHR_video_decode_queue)\nhwdec=vaapi,vaapi-copy\n")
+                f.write("# VA-API hardware acceleration (avoids Vulkan Video VK_KHR_video_decode_queue failure)\nhwdec=vaapi,vaapi-copy\n")
         return True
     except OSError:
         return False
 
 
 def ensure_ytdl_wrapper() -> Path:
-    """Cria o wrapper executável usado pelo ytdl_hook do mpv."""
+    """Creates the executable wrapper used by mpv's ytdl_hook."""
     script_path = Path(__file__).resolve()
     wrapper_code = f"""#!/usr/bin/env bash
 exec python3 "{script_path}" --internal-ytdl-hook "$@"
@@ -351,11 +351,11 @@ exec python3 "{script_path}" --internal-ytdl-hook "$@"
 
 def run_ytdl_hook_wrapper(args: list[str]) -> int:
     """
-    Interceptador do yt-dlp para o mpv:
-    - Injeta `--extractor-args youtube:player_client=default,-tv_samsung`
-    - Prioriza codecs H.264 e VP9 (`-S vcodec:h264,vp9`)
-    - Se o YouTube exigir espera de anúncio (`available_at`), aguarda com barra
-      regressiva no terminal antes de devolver o JSON para o mpv.
+    yt-dlp interceptor for mpv:
+    - Injects `--extractor-args youtube:player_client=default,-tv_samsung`
+    - Prioritizes H.264 and VP9 codecs (`-S vcodec:h264,vp9`)
+    - If YouTube requires an ad wait (`available_at`), waits with a
+      countdown bar in the terminal before returning the JSON to mpv.
     """
     cmd = [YTDLP_BIN]
     if "--version" not in args:
@@ -395,7 +395,7 @@ def run_ytdl_hook_wrapper(args: list[str]) -> int:
 
 
 def _show_ad_wait_countdown(seconds: float) -> None:
-    """Mostra contagem regressiva quando o YouTube exige aguardar o tempo de anúncio."""
+    """Shows a countdown when YouTube requires waiting out the ad time."""
     c_warn = THEME.ansi_fg("yellow", bold=True)
     c_acc = THEME.ansi_fg("accent", bold=True)
     rst = THEME.reset
@@ -411,12 +411,12 @@ def _show_ad_wait_countdown(seconds: float) -> None:
             if rem <= 0:
                 break
             tty_f.write(
-                f"\r  {c_warn}⏳ [omayt]{rst} Aguardando liberação de anúncio do YouTube: "
-                f"{c_acc}{rem:0.1f}s{rst} restantes...   "
+                f"\r  {c_warn}⏳ [omayt]{rst} Waiting for YouTube ad release: "
+                f"{c_acc}{rem:0.1f}s{rst} remaining...   "
             )
             tty_f.flush()
             time.sleep(min(0.1, rem))
-        tty_f.write(f"\r  {THEME.ansi_fg('green', bold=True)}✓ [omayt]{rst} Stream liberado! Iniciando reprodução...                  \n")
+        tty_f.write(f"\r  {THEME.ansi_fg('green', bold=True)}✓ [omayt]{rst} Stream released! Starting playback...                  \n")
         tty_f.flush()
     finally:
         if tty_f is not sys.stderr:
@@ -442,7 +442,7 @@ def save_json_file(path: Path, data: Any) -> None:
 
 
 # ============================================================================
-# 3. DOWNLOAD PARALELO E RENDERIZAÇÃO DE THUMBNAILS HD (SIXEL / KITTY / CHAFA)
+# 3. PARALLEL DOWNLOAD AND HD THUMBNAIL RENDERING (SIXEL / KITTY / CHAFA)
 # ============================================================================
 
 
@@ -665,13 +665,13 @@ def render_thumbnail_to_stdout(img_path: Path, preview_cols: int, preview_lines:
 
 
 # ============================================================================
-# 4. BUSCA NO YOUTUBE (DIRETA VIA YT-DLP COM FIX -TV_SAMSUNG)
+# 4. YOUTUBE SEARCH (DIRECT VIA YT-DLP WITH -TV_SAMSUNG FIX)
 # ============================================================================
 
 
 def format_duration(seconds: Any) -> str:
     if not seconds:
-        return "AO VIVO"
+        return "LIVE"
     if isinstance(seconds, str):
         return seconds
     try:
@@ -764,7 +764,7 @@ def search_youtube(
             continue
         seen_ids.add(vid)
 
-        title = (item.get("title") or "Sem título").replace("\t", " ").replace("\n", " ").strip()
+        title = (item.get("title") or "Untitled").replace("\t", " ").replace("\n", " ").strip()
         channel = (
             item.get("channel")
             or item.get("uploader")
@@ -830,7 +830,7 @@ def load_more_youtube_results(
     current_limit: int,
     page_size: int = SEARCH_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], int, int]:
-    """Carrega mais `page_size` resultados para a busca atual preservando a ordem já exibida."""
+    """Loads `page_size` more results for the current search, keeping the displayed order."""
     query = query.strip()
     if not query:
         return (list(existing_videos), current_limit, 0)
@@ -876,7 +876,7 @@ def load_more_youtube_results(
 
 
 # ============================================================================
-# 5. HISTÓRICO DE VÍDEOS E PESQUISAS
+# 5. VIDEO AND SEARCH HISTORY
 # ============================================================================
 
 
@@ -898,7 +898,7 @@ def record_search_history(query: str) -> None:
 
 
 # ============================================================================
-# 6. FORMATAÇÃO DA LISTA E DO PAINEL DE PREVIEW DA TUI
+# 6. TUI LIST AND PREVIEW PANE FORMATTING
 # ============================================================================
 
 
@@ -920,15 +920,15 @@ def format_tui_rows(
     lines: list[str] = []
 
     search_hint = (
-        f" ({header_note})" if header_note else " (Digite acima e aperte Enter ou Ctrl+S)"
+        f" ({header_note})" if header_note else " (Type above and press Enter or Ctrl+S)"
     )
     lines.append(
-        f"__SEARCH__\t{c_cyn}  [Pesquisar no YouTube o texto digitado acima]{rst}{c_mut}{search_hint}{rst}"
+        f"__SEARCH__\t{c_cyn}  [Search YouTube for the text typed above]{rst}{c_mut}{search_hint}{rst}"
     )
 
     for idx, v in enumerate(videos, 1):
         vid = v.get("id", "")
-        title = v.get("title", "Sem título")
+        title = v.get("title", "Untitled")
         if len(title) > 52:
             title = title[:49] + "..."
         channel = v.get("channel", "YouTube")
@@ -949,13 +949,13 @@ def format_tui_rows(
 
     if videos and can_load_more:
         lines.append(
-            f"__MORE__\t{c_cyn}󰐕  [Carregar mais {page_size} resultados]{rst}"
-            f"{c_mut} (Enter aqui ou Alt+M / Ctrl+E • {len(videos)} carregados){rst}"
+            f"__MORE__\t{c_cyn}󰐕  [Load {page_size} more results]{rst}"
+            f"{c_mut} (Enter here or Alt+M / Ctrl+E • {len(videos)} loaded){rst}"
         )
 
     if not videos:
         lines.append(
-            f"__HISTORY__\t{c_acc}󰋚  [Nenhum vídeo carregado — digite sua pesquisa acima e aperte Enter ou Ctrl+S]{rst}"
+            f"__HISTORY__\t{c_acc}󰋚  [No videos loaded — type your search above and press Enter or Ctrl+S]{rst}"
         )
 
     return "\n".join(lines)
@@ -981,19 +981,19 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
 
     if item_id == "__MORE__":
         state = load_json_file(STATE_FILE, {})
-        q_saved = state.get("query") or current_query.strip() or "sua busca"
+        q_saved = state.get("query") or current_query.strip() or "your term"
         loaded_cnt = int(state.get("count") or len(load_json_file(LAST_LIST_FILE, [])))
         next_start = loaded_cnt + 1
         next_end = loaded_cnt + SEARCH_PAGE_SIZE
 
-        print(f"\n {c_cyn}󰐕{rst} {c_acc}Carregar Mais Resultados ({SEARCH_PAGE_SIZE} em {SEARCH_PAGE_SIZE}){rst}")
+        print(f"\n {c_cyn}󰐕{rst} {c_acc}Load More Results ({SEARCH_PAGE_SIZE} of {SEARCH_PAGE_SIZE}){rst}")
         print(f" {sep}")
-        print(f"\n {c_acc}  Busca atual :{rst} {c_yel}“{q_saved}”{rst}")
-        print(f" {c_acc}󰕧  Carregados  :{rst} {c_fg}{loaded_cnt} vídeos{rst}")
-        print(f" {c_acc}󰐕  Próximo lote:{rst} {c_grn}+{SEARCH_PAGE_SIZE} vídeos ({next_start}–{next_end}){rst}")
+        print(f"\n {c_acc}  Search      :{rst} {c_yel}“{q_saved}”{rst}")
+        print(f" {c_acc}󰕧  Loaded      :{rst} {c_fg}{loaded_cnt} videos{rst}")
+        print(f" {c_acc}󰐕  Next batch  :{rst} {c_grn}+{SEARCH_PAGE_SIZE} videos ({next_start}–{next_end}){rst}")
         print(f"\n {sep}")
-        print(f" {c_grn}↳ Pressione [Enter] nesta linha ou [Alt+M] / [Ctrl+E] em qualquer lugar{rst}")
-        print(f" {c_txt}  para carregar os próximos {SEARCH_PAGE_SIZE} vídeos mantendo os atuais na lista!{rst}")
+        print(f" {c_grn}↳ Press [Enter] on this line or [Alt+M] / [Ctrl+E] anywhere{rst}")
+        print(f" {c_txt}  to load the next {SEARCH_PAGE_SIZE} videos while keeping the current list!{rst}")
         return
 
     if item_id in ("__SEARCH__", "__HISTORY__") or not item_id:
@@ -1003,38 +1003,38 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
         print(f"\n {c_red}󰗃{rst} {c_acc}omayt • Omarchy YouTube TUI{rst} {c_mut}(v{APP_VERSION}){rst}")
         print(f" {sep}")
         if current_query.strip():
-            print(f"\n {c_cyn}  Pronto para pesquisar no YouTube:{rst}")
+            print(f"\n {c_cyn}  Ready to search YouTube:{rst}")
             print(f"    {c_yel}“{current_query.strip()}”{rst}")
-            print(f"    {c_grn}↳ Pressione [Enter] ou [Ctrl+S] agora para buscar ({SEARCH_PAGE_SIZE} resultados)!{rst}")
+            print(f"    {c_grn}↳ Press [Enter] or [Ctrl+S] now to search ({SEARCH_PAGE_SIZE} results)!{rst}")
         else:
-            print(f"\n {c_cyn}  Como pesquisar:{rst}")
-            print(f"    {c_txt}1. Digite qualquer termo na barra de busca no topo{rst}")
-            print(f"    {c_txt}2. Aperte {c_yel}Enter{rst}{c_txt} (nesta linha) ou {c_yel}Ctrl+S{rst}{c_txt} (em qualquer linha){rst}")
+            print(f"\n {c_cyn}  How to search:{rst}")
+            print(f"    {c_txt}1. Type any term in the search bar at the top{rst}")
+            print(f"    {c_txt}2. Press {c_yel}Enter{rst}{c_txt} (on this line) or {c_yel}Ctrl+S{rst}{c_txt} (on any line){rst}")
 
         print(f"\n {sep}")
-        print(f" {c_acc}⌨  Atalhos Rápidos da TUI:{rst}")
-        print(f"   {c_yel}Enter{rst}    Assistir vídeo no {c_fg}mpv{rst} (Janela Wayland • VA-API GPU)")
-        print(f"   {c_yel}Alt+M{rst}    Carregar {c_cyn}+{SEARCH_PAGE_SIZE} resultados{rst} na busca atual (ou {c_yel}Ctrl+E{rst})")
-        print(f"   {c_yel}Alt+I{rst}    Assistir vídeo {c_grn}DENTRO do terminal{rst} (Sixel/Kitty pixels!)")
-        print(f"   {c_yel}Alt+B{rst}    Assistir vídeo no terminal em modo {c_cyn}Blocos TrueColor{rst} (tct)")
-        print(f"   {c_yel}Alt+A{rst}    Ouvir {c_mag}Música com Visualizador CAVA{rst} animado no terminal!")
-        print(f"   {c_yel}Alt+D{rst}    Baixar vídeo (MP4) ou áudio (MP3) para {c_txt}~/Videos/omayt{rst}")
-        print(f"   {c_yel}Alt+L{rst}    Copiar link do vídeo ({c_txt}wl-copy{rst})")
-        print(f"   {c_yel}Ctrl+S{rst}   Buscar no YouTube o texto digitado na barra")
-        print(f"   {c_yel}Ctrl+H{rst}   Abrir Histórico de vídeos assistidos ({len(watch_hist)} salvos)")
-        print(f"   {c_yel}Ctrl+F{rst}   Alternar filtro local da lista atual")
-        print(f"   {c_yel}Esc{rst}      Voltar ao Menu / Sair")
+        print(f" {c_acc}⌨  TUI Quick Shortcuts:{rst}")
+        print(f"   {c_yel}Enter{rst}    Watch video in {c_fg}mpv{rst} (Wayland Window • VA-API GPU)")
+        print(f"   {c_yel}Alt+M{rst}    Load {c_cyn}+{SEARCH_PAGE_SIZE} more results{rst} for this search (or {c_yel}Ctrl+E{rst})")
+        print(f"   {c_yel}Alt+I{rst}    Watch video {c_grn}INSIDE the terminal{rst} (Sixel/Kitty pixels!)")
+        print(f"   {c_yel}Alt+B{rst}    Watch video in terminal in {c_cyn}TrueColor Blocks{rst} mode (tct)")
+        print(f"   {c_yel}Alt+A{rst}    Listen to {c_mag}Music with CAVA Visualizer{rst} in the terminal!")
+        print(f"   {c_yel}Alt+D{rst}    Download video (MP4) or audio (MP3) to {c_txt}~/Videos/omayt{rst}")
+        print(f"   {c_yel}Alt+L{rst}    Copy the video link ({c_txt}wl-copy{rst})")
+        print(f"   {c_yel}Ctrl+S{rst}   Search YouTube for the text in the bar")
+        print(f"   {c_yel}Ctrl+H{rst}   Open watched video history ({len(watch_hist)} saved)")
+        print(f"   {c_yel}Ctrl+F{rst}   Toggle local list filter")
+        print(f"   {c_yel}Esc{rst}      Back to Menu / Quit")
 
         print(f"\n {sep}")
-        print(f" {c_grn}🛡️  Otimizações de Vídeo, Áudio Cava & Thumbnails HD Ativas:{rst}")
-        print(f"   {c_txt}• GPU Decode: {c_grn}VA-API (Intel Iris Xe / Mesa){rst} — sem erro Vulkan Video")
-        print(f"   {c_txt}• Áudio TUI : {c_mag}Visualizador de Espectro FFT 60 FPS estilo Cava{rst}")
+        print(f" {c_grn}🛡️  Video, Cava Audio & HD Thumbnail Optimizations Active:{rst}")
+        print(f"   {c_txt}• GPU Decode: {c_grn}VA-API (Intel Iris Xe / Mesa){rst} — no Vulkan Video error")
+        print(f"   {c_txt}• TUI Audio : {c_mag}Cava-style FFT Spectrum Visualizer at 60 FPS{rst}")
         print(f"   {c_txt}• Thumbnails: {c_cyn}1280x720 MaxRes + Lanczos + Unsharp + 256-Color Histogram{rst}")
-        print(f"   {c_txt}• Tema ativo: {c_mag}{THEME.name}{rst}")
+        print(f"   {c_txt}• Theme     : {c_mag}{THEME.name}{rst}")
 
         if search_hist:
             print(f"\n {sep}")
-            print(f" {c_acc}󰋚  Últimas Pesquisas:{rst}")
+            print(f" {c_acc}󰋚  Recent Searches:{rst}")
             for q in search_hist[:6]:
                 print(f"   {c_mut}•{rst} {c_txt}{q}{rst}")
         return
@@ -1050,7 +1050,7 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if not video:
         video = {
             "id": item_id,
-            "title": f"Vídeo {item_id}",
+            "title": f"Video {item_id}",
             "channel": "YouTube",
             "duration": "—",
             "views": "—",
@@ -1061,38 +1061,38 @@ def render_preview_pane(item_id: str, current_query: str = "") -> None:
     if img_path and img_path.is_file():
         render_thumbnail_to_stdout(img_path, cols, lines)
     else:
-        print(f"\n {c_mut}[Thumbnail indisponível para {item_id}]{rst}\n")
+        print(f"\n {c_mut}[Thumbnail unavailable for {item_id}]{rst}\n")
 
     print(f" {sep}")
     wrap_w = max(28, cols - 4)
-    wrapped_title = textwrap.wrap(video.get("title", "Sem título"), width=wrap_w)
+    wrapped_title = textwrap.wrap(video.get("title", "Untitled"), width=wrap_w)
     for line in wrapped_title[:2]:
         print(f" {c_fg}{line}{rst}")
 
     print(f" {sep}")
-    print(f" {c_acc}󰠃 Canal  :{rst} {c_grn}{video.get('channel', '—')}{rst}")
+    print(f" {c_acc}󰠃 Channel:{rst} {c_grn}{video.get('channel', '—')}{rst}")
     print(
-        f" {c_acc}󰥔 Duração:{rst} {c_yel}{video.get('duration', '—')}{rst}   "
+        f" {c_acc}󰥔 Runtime:{rst} {c_yel}{video.get('duration', '—')}{rst}   "
         f"{c_acc}󰈈 Views:{rst} {c_mag}{video.get('views', '—')}{rst}"
     )
     print(f" {c_acc}󰌷 Link   :{rst} {c_mut}{video.get('url', '')}{rst}")
-    print(f" {c_acc}🛡️ Player :{rst} {c_grn}VA-API Hardware Decode • Anti-403 Ativo{rst}")
+    print(f" {c_acc}🛡️ Player :{rst} {c_grn}VA-API Hardware Decode • Anti-403 Active{rst}")
     print(f" {sep}")
     print(
         f" {c_yel}[Enter]{rst} MPV  "
-        f"{c_grn}[Alt+I]{rst} Vídeo no Terminal  "
-        f"{c_mag}[Alt+A]{rst} 󰎆 Áudio+Cava  "
-        f"{c_cyn}[Alt+D]{rst} Baixar"
+        f"{c_grn}[Alt+I]{rst} Terminal Video  "
+        f"{c_mag}[Alt+A]{rst} 󰎆 Audio+Cava  "
+        f"{c_cyn}[Alt+D]{rst} Download"
     )
 
 
 # ============================================================================
-# 7. VISUALIZADOR DE ÁUDIO ESTILO CAVA (60 FPS FFT + PIPEWIRE + MPV IPC)
+# 7. CAVA-STYLE AUDIO VISUALIZER (60 FPS FFT + PIPEWIRE + MPV IPC)
 # ============================================================================
 
 
 def _fft_radix2(buf: list[complex]) -> list[complex]:
-    """Cooley-Tukey Radix-2 FFT em Python puro (~0.5ms para 512 amostras)."""
+    """Cooley-Tukey Radix-2 FFT in pure Python (~0.5ms for 512 samples)."""
     n = len(buf)
     if n <= 1:
         return buf
@@ -1123,9 +1123,9 @@ def _fft_radix2(buf: list[complex]) -> list[complex]:
 
 class CavaVisualizerPlayer:
     """
-    Player de áudio interativo no terminal com visualizador de espectro em tempo real
-    estilo Cava (captura de áudio real do sistema via PipeWire/PulseAudio + FFT +
-    física de gravidade, filtro Monstercat, Peak Caps e controle IPC do mpv).
+    Interactive terminal audio player with a real-time spectrum visualizer
+    in Cava style (real system audio capture via PipeWire/PulseAudio + FFT +
+    gravity physics, Monstercat filter, Peak Caps and mpv IPC control).
     """
 
     BLOCKS = (" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
@@ -1164,7 +1164,7 @@ class CavaVisualizerPlayer:
         self.cap_proc: subprocess.Popen[Any] | None = None
 
     def _start_audio_capture(self) -> None:
-        """Inicia captura em tempo real do monitor de áudio (PipeWire pw-record ou PulseAudio parec)."""
+        """Starts real-time capture of the audio monitor (PipeWire pw-record or PulseAudio parec)."""
         def reader_loop() -> None:
             cmds: list[list[str]] = []
             if shutil.which("parec"):
@@ -1225,7 +1225,7 @@ class CavaVisualizerPlayer:
         t.start()
 
     def _start_mpv_ipc_poller(self) -> None:
-        """Consulta posição, duração, pausa e volume no socket IPC do mpv."""
+        """Queries position, duration, pause and volume on the mpv IPC socket."""
         def ipc_loop() -> None:
             while self.running:
                 if os.path.exists(self.ipc_path):
@@ -1289,8 +1289,8 @@ class CavaVisualizerPlayer:
 
     def _compute_spectrum_bars(self, num_bars: int) -> tuple[list[float], list[float]]:
         """
-        Calcula as barras de frequência (Esquerda e Direita) a partir do buffer FFT
-        com escala logarítmica de frequências (45 Hz a 7500 Hz) e filtro Monstercat.
+        Computes the frequency bars (Left and Right) from the FFT buffer
+        with a logarithmic frequency scale (45 Hz to 7500 Hz) and Monstercat filter.
         """
         num_bars = max(8, num_bars)
         now = time.time()
@@ -1310,7 +1310,7 @@ class CavaVisualizerPlayer:
             mag_l = [abs(spec_l[i]) / half_n for i in range(1, half_n)]
             mag_r = [abs(spec_r[i]) / half_n for i in range(1, half_n)]
 
-            # Mapeamento logarítmico de bins (45 Hz .. 7200 Hz)
+            # Logarithmic bin mapping (45 Hz .. 7200 Hz)
             f_min, f_max = 45.0, 7200.0
             bars_l: list[float] = []
             bars_r: list[float] = []
@@ -1322,18 +1322,18 @@ class CavaVisualizerPlayer:
                 idx0 = max(0, min(int(freq0 * self.fft_size / self.sample_rate), len(mag_l) - 1))
                 idx1 = max(idx0 + 1, min(int(freq1 * self.fft_size / self.sample_rate) + 1, len(mag_l)))
 
-                # Compensação de energia para frequências médias/agudas (estilo Cava EQ)
+                # Energy compensation for mid/high frequencies (Cava-style EQ)
                 eq_boost = 1.0 + (b / num_bars) * 2.4
                 val_l = (sum(mag_l[idx0:idx1]) / (idx1 - idx0)) * eq_boost
                 val_r = (sum(mag_r[idx0:idx1]) / (idx1 - idx0)) * eq_boost
                 bars_l.append(val_l)
                 bars_r.append(val_r)
 
-            # Suavização espacial estilo Monstercat
+            # Monstercat-style spatial smoothing
             bars_l = self._monstercat_filter(bars_l)
             bars_r = self._monstercat_filter(bars_r)
 
-            # Controle Automático de Ganho (AGC) suave estilo Cava
+            # Smooth Cava-style Automatic Gain Control (AGC)
             curr_max = max(max(bars_l, default=0.0), max(bars_r, default=0.0))
             if curr_max > self.agc_peak:
                 self.agc_peak = self.agc_peak * 0.7 + curr_max * 0.3
@@ -1344,7 +1344,7 @@ class CavaVisualizerPlayer:
             norm_r = [min(1.0, (v / self.agc_peak) ** 0.82) for v in bars_r]
             return (norm_l, norm_r)
 
-        # Se o stream ainda está carregando ou o monitor do PipeWire está silencioso mentre toca
+        # If the stream is still loading or the PipeWire monitor is silent while playing
         if self.time_pos > 0:
             bars_l = []
             bars_r = []
@@ -1392,7 +1392,7 @@ class CavaVisualizerPlayer:
         except Exception:
             tty_f = None
 
-        # Esconder cursor e limpar tela
+        # Hide cursor and clear the screen
         sys.stdout.write("\033[?25l\033[2J\033[H")
         sys.stdout.flush()
 
@@ -1406,7 +1406,7 @@ class CavaVisualizerPlayer:
                 if self.mpv_proc.poll() is not None:
                     break
 
-                # Ler teclas sem bloquear (~30-45 FPS)
+                # Read keys without blocking (~30-45 FPS)
                 if tty_fd is not None:
                     rlist, _, _ = select.select([tty_fd], [], [], 0.025)
                     if rlist:
@@ -1419,7 +1419,7 @@ class CavaVisualizerPlayer:
                 term_size = shutil.get_terminal_size((100, 32))
                 cols, rows = max(50, term_size.columns), max(16, term_size.lines)
 
-                # Cada barra usa 2 colunas (█ + espaço) ou 3 colunas em telas largas
+                # Each bar uses 2 columns (█ + space) or 3 columns on wide screens
                 bar_w = 2 if cols >= 90 else 1
                 gap_w = 1
                 stride = bar_w + gap_w
@@ -1434,7 +1434,7 @@ class CavaVisualizerPlayer:
 
                 target_l, target_r = self._compute_spectrum_bars(num_bars)
 
-                # Física estilo Cava (ataque rápido, queda com gravidade e Peak Caps flutuantes)
+                # Cava-style physics (fast attack, gravity fall and floating Peak Caps)
                 for i in range(num_bars):
                     tl = target_l[i]
                     if tl >= smooth_l[i]:
@@ -1537,12 +1537,12 @@ class CavaVisualizerPlayer:
         rst = THEME.reset
 
         inner_w = cols - 6
-        title = self.video.get("title", "Sem título")
+        title = self.video.get("title", "Untitled")
         if len(title) > inner_w - 4:
             title = title[: inner_w - 7] + "..."
         channel = self.video.get("channel", "YouTube")
 
-        # Barra de progresso da música
+        # Song progress bar
         pos_str = format_duration(int(self.time_pos)) if self.time_pos > 0 else "00:00"
         dur_val = self.duration if self.duration > 0 else 0.0
         dur_str = format_duration(int(dur_val)) if dur_val > 0 else (self.video.get("duration") or "--:--")
@@ -1555,18 +1555,18 @@ class CavaVisualizerPlayer:
         )
 
         if self.time_pos <= 0 and not self.paused:
-            state_badge = f"{c_yel}⏳ Conectando stream...{rst}"
+            state_badge = f"{c_yel}⏳ Connecting stream...{rst}"
         elif self.paused:
-            state_badge = f"{c_yel}⏸ PAUSADO{rst}"
+            state_badge = f"{c_yel}⏸ PAUSED{rst}"
         else:
-            state_badge = f"{c_grn}▶ TOCANDO{rst}"
+            state_badge = f"{c_grn}▶ PLAYING{rst}"
 
         vol_badge = f"{c_red}󰝟 MUTE{rst}" if self.muted else f"{c_cyn}🔊 {int(self.volume)}%{rst}"
         style_name = self.STYLES[self.style_idx]
 
         out: list[str] = ["\033[?2026h\033[H"]
 
-        top_border = f"  {c_acc}╭─ 󰎆 omayt • Modo Música & Visualizador Cava [Tema: {THEME.name}] {'─' * max(1, inner_w - 54 - len(THEME.name))}╮{rst}\033[K"
+        top_border = f"  {c_acc}╭─ 󰎆 omayt • Music Mode & Cava Visualizer [Theme: {THEME.name}] {'─' * max(1, inner_w - 54 - len(THEME.name))}╮{rst}\033[K"
         out.append(top_border)
         out.append(f"  {c_acc}│{rst} {c_fg}{title:<{inner_w}}{rst} {c_acc}│{rst}\033[K")
 
@@ -1580,17 +1580,17 @@ class CavaVisualizerPlayer:
         out.append(f"  {c_acc}╰{'─' * (inner_w + 2)}╯{rst}\033[K")
         out.append("\033[K")
 
-        # Área vertical disponível para o espectro Cava
+        # Vertical area available for the Cava spectrum
         vis_rows = max(8, rows - 10)
         total_vis_w = num_bars * (bar_w + gap_w) - gap_w
         left_pad = " " * max(2, (cols - total_vis_w) // 2)
         gap_str = " " * gap_w
 
         if self.style_idx == 1:
-            # MODO 2: Stereo Mirror (Canal Esquerdo sobe, Canal Direito desce a partir do centro)
+            # MODE 2: Stereo Mirror (Left channel rises, Right channel falls from the center)
             half_rows = max(4, vis_rows // 2)
             grad = THEME.build_gradient(half_rows)
-            # Metade superior (Canal Esquerdo, de cima para baixo)
+            # Top half (Left channel, top to bottom)
             for r in range(half_rows - 1, -1, -1):
                 row_color = grad[r]
                 cells: list[str] = []
@@ -1606,11 +1606,11 @@ class CavaVisualizerPlayer:
                         cells.append(" " * bar_w)
                 out.append(f"{left_pad}{row_color}{gap_str.join(cells)}{rst}\033[K")
 
-            # Linha central divisória
+            # Center divider line
             center_line = (c_acc + ("━" * bar_w) + rst + gap_str) * num_bars
             out.append(f"{left_pad}{center_line}\033[K")
 
-            # Metade inferior (Canal Direito espelhado)
+            # Bottom half (mirrored Right channel)
             for r in range(half_rows - 1):
                 row_color = grad[r]
                 cells = []
@@ -1626,10 +1626,10 @@ class CavaVisualizerPlayer:
                 out.append(f"{left_pad}{row_color}{gap_str.join(cells)}{rst}\033[K")
 
         else:
-            # MODO 1 (Cava Classic Bars) ou MODO 3 (Center Symmetrical Bass in Middle)
+            # MODE 1 (Cava Classic Bars) or MODE 3 (Center Symmetrical Bass in Middle)
             grad = THEME.build_gradient(vis_rows)
             if self.style_idx == 2:
-                # Reorganiza graves no centro e agudos nas bordas
+                # Moves bass to the center and treble to the edges
                 mid = num_bars // 2
                 sym_bars = [0.0] * num_bars
                 sym_peaks = [0.0] * num_bars
@@ -1665,12 +1665,12 @@ class CavaVisualizerPlayer:
 
         out.append("\033[K")
         footer = (
-            f"  {c_yel}[Espaço]{rst} Play/Pause  "
+            f"  {c_yel}[Space]{rst} Play/Pause  "
             f"{c_yel}[←/→]{rst} Seek ±5s  "
             f"{c_yel}[↑/↓]{rst} Volume  "
             f"{c_yel}[m]{rst} Mute  "
-            f"{c_mag}[v]{rst} Trocar Estilo Cava  "
-            f"{c_red}[q/Esc]{rst} Voltar à TUI\033[K"
+            f"{c_mag}[v]{rst} Switch Cava Style  "
+            f"{c_red}[q/Esc]{rst} Back to TUI\033[K"
         )
         out.append(footer)
         out.append("\033[J\033[?2026l")
@@ -1680,7 +1680,7 @@ class CavaVisualizerPlayer:
 
 
 # ============================================================================
-# 8. PLAYERS (MPV JANELA COM VA-API, MPV INLINE TERMINAL SIXEL/KITTY, ÁUDIO+CAVA)
+# 8. PLAYERS (MPV WINDOW WITH VA-API, MPV INLINE TERMINAL SIXEL/KITTY, AUDIO+CAVA)
 # ============================================================================
 
 
@@ -1750,16 +1750,16 @@ def play_video(video_id: str, mode: str = "window") -> None:
         )
         if is_kitty_or_ghostty:
             base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol • VA-API)"
+            mode_label = "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)"
         else:
             base_cmd.extend(["--vo=sixel", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot • VA-API)"
+            mode_label = "Inline Video in Terminal (Sixel Graphics - Foot • VA-API)"
     elif mode == "inline-blocks":
         base_cmd.extend(["--vo=tct", "--hwdec=vaapi-copy", f"--ytdl-format={no_av1_720}", "--profile=sw-fast", "--really-quiet"])
-        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT • VA-API)"
+        mode_label = "Video in Terminal (TrueColor Blocks TCT • VA-API)"
     else:
         base_cmd.extend(["--hwdec=vaapi,vaapi-copy", f"--ytdl-format={no_av1_1080}"])
-        mode_label = "Janela MPV (Wayland • Aceleração de Hardware VA-API)"
+        mode_label = "MPV Window (Wayland • VA-API Hardware Acceleration)"
 
     base_cmd.append(url)
 
@@ -1768,9 +1768,9 @@ def play_video(video_id: str, mode: str = "window") -> None:
     print(f"  {c_yel}▶{rst} {title}")
     print(f"  {c_mut}🛡️ GPU Decode: VA-API (Intel Iris Xe) | Anti-AdBlock: default,-tv_samsung{rst}")
     if mode.startswith("inline"):
-        print(f"  {c_mut}💡 Dica: Aperte 'q' para parar o vídeo e voltar à TUI, 'espaço' para pausar, ←/→ para avançar.{rst}\n")
+        print(f"  {c_mut}💡 Tip: Press 'q' to stop the video and return to the TUI, 'space' to pause, ←/→ to seek.{rst}\n")
     else:
-        print(f"  {c_mut}💡 Dica: Feche a janela do mpv (ou aperte 'q') para voltar à TUI do omayt.{rst}\n")
+        print(f"  {c_mut}💡 Tip: Close the mpv window (or press 'q') to return to the omayt TUI.{rst}\n")
 
     start_ts = time.time()
     proc = subprocess.run(base_cmd)
@@ -1778,7 +1778,7 @@ def play_video(video_id: str, mode: str = "window") -> None:
 
     if proc.returncode != 0 and elapsed < 5.0:
         print(
-            f"\n  {c_yel}⚠ O YouTube reteve o stream temporariamente por anúncio.{rst}"
+            f"\n  {c_yel}⚠ YouTube temporarily held the stream because of an ad.{rst}"
         )
         _show_ad_wait_countdown(4.0)
         subprocess.run(base_cmd)
@@ -1798,9 +1798,9 @@ def download_video(video_id: str) -> None:
 
     os.system("clear")
     print(f"\n  {c_acc}󰇚 Download • omayt{rst}")
-    print(f"  {c_yel}Vídeo:{rst} {title}")
-    print(f"  {c_yel}Pasta:{rst} {DOWNLOAD_DIR}\n")
-    print(f"  Escolha o formato: {c_grn}[1] Vídeo MP4 (VP9/H.264){rst}  |  {c_acc}[2] Apenas Áudio MP3{rst}  |  [q] Cancelar")
+    print(f"  {c_yel}Video:{rst} {title}")
+    print(f"  {c_yel}Folder:{rst} {DOWNLOAD_DIR}\n")
+    print(f"  Choose the format: {c_grn}[1] MP4 Video (VP9/H.264){rst}  |  {c_acc}[2] Audio Only MP3{rst}  |  [q] Cancel")
     try:
         choice = input("  > ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -1828,7 +1828,7 @@ def download_video(video_id: str) -> None:
     cmd.append(url)
     print()
     subprocess.run(cmd)
-    input(f"\n  {c_grn}✓ Processo concluído! Pressione Enter para voltar ao omayt...{rst}")
+    input(f"\n  {c_grn}✓ Done! Press Enter to return to omayt...{rst}")
 
 
 def copy_link(video_id: str) -> None:
@@ -1838,13 +1838,13 @@ def copy_link(video_id: str) -> None:
         subprocess.run(["wl-copy", url], stderr=subprocess.DEVNULL)
     if shutil.which("notify-send"):
         subprocess.run(
-            ["notify-send", "omayt", f"Link copiado:\n{url}"],
+            ["notify-send", "omayt", f"Link copied:\n{url}"],
             stderr=subprocess.DEVNULL,
         )
 
 
 def extract_youtube_id(text: str) -> str | None:
-    """Extrai o ID de 11 caracteres de uma URL do YouTube (ou retorna se já for um ID)."""
+    """Extracts the 11-character ID from a YouTube URL (or returns it if it is already an ID)."""
     text = text.strip()
     if not text:
         return None
@@ -1865,7 +1865,7 @@ def extract_youtube_id(text: str) -> str | None:
 def play_direct_target(
     target: str, title: str, mode: str = "window", is_local: bool = False
 ) -> None:
-    """Reproduz uma URL direta ou arquivo local usando MPV (VA-API / Sixel / Kitty / Cava)."""
+    """Plays a direct URL or a local file using MPV (VA-API / Sixel / Kitty / Cava)."""
     ensure_dirs()
     c_acc = THEME.ansi_fg("accent", bold=True)
     c_grn = THEME.ansi_fg("green", bold=True)
@@ -1890,7 +1890,7 @@ def play_direct_target(
         pseudo_video = {
             "id": extract_youtube_id(target) or "local",
             "title": title,
-            "channel": "Arquivo Local • ~/Videos/omayt" if is_local else "YouTube • Link Direto",
+            "channel": "Local File • ~/Videos/omayt" if is_local else "YouTube • Direct Link",
             "duration": "--:--",
             "url": target,
         }
@@ -1907,22 +1907,22 @@ def play_direct_target(
         )
         if is_kitty_or_ghostty:
             base_cmd.extend(["--vo=kitty", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Kitty Graphics Protocol • VA-API)"
+            mode_label = "Inline Video in Terminal (Kitty Graphics Protocol • VA-API)"
         else:
             base_cmd.extend(["--vo=sixel", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
-            mode_label = "Vídeo Inline no Terminal (Sixel Graphics - Foot • VA-API)"
+            mode_label = "Inline Video in Terminal (Sixel Graphics - Foot • VA-API)"
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_720}")
     elif mode == "inline-blocks":
         base_cmd.extend(["--vo=tct", "--hwdec=vaapi-copy", "--profile=sw-fast", "--really-quiet"])
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_720}")
-        mode_label = "Vídeo no Terminal (Blocos TrueColor TCT • VA-API)"
+        mode_label = "Video in Terminal (TrueColor Blocks TCT • VA-API)"
     else:
         base_cmd.append("--hwdec=vaapi,vaapi-copy")
         if not is_local:
             base_cmd.append(f"--ytdl-format={no_av1_1080}")
-        mode_label = "Janela MPV (Wayland • Aceleração de Hardware VA-API)"
+        mode_label = "MPV Window (Wayland • VA-API Hardware Acceleration)"
 
     base_cmd.append(target)
 
@@ -1930,7 +1930,7 @@ def play_direct_target(
     print(f"\n  {c_acc}󰗃 omayt{rst} • {c_grn}{mode_label}{rst}")
     print(f"  {c_yel}▶{rst} {title}")
     if is_local:
-        print(f"  {c_mut}󰇚 Reprodução local • GPU Decode: VA-API{rst}\n")
+        print(f"  {c_mut}󰇚 Local playback • GPU Decode: VA-API{rst}\n")
     else:
         print(f"  {c_mut}󰒃 GPU Decode: VA-API | Anti-AdBlock: default,-tv_samsung{rst}\n")
 
@@ -1938,7 +1938,7 @@ def play_direct_target(
 
 
 # ============================================================================
-# 9. MENU PRINCIPAL INTERATIVO (OMARCHY STARTUP MENU)
+# 9. INTERACTIVE MAIN MENU (OMARCHY STARTUP MENU)
 # ============================================================================
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
@@ -1959,7 +1959,7 @@ def _char_display_width(ch: str) -> int:
         return 0
     if unicodedata.combining(ch):
         return 0
-    # Nerd Font Private Use Area glyphs ocupam 1 célula em Foot/Kitty/Ghostty
+    # Nerd Font Private Use Area glyphs take 1 cell in Foot/Kitty/Ghostty
     if (0xE000 <= cp <= 0xF8FF) or (0xF0000 <= cp <= 0xFFFFD) or (0x100000 <= cp <= 0x10FFFD):
         return 1
     if unicodedata.east_asian_width(ch) in ("F", "W"):
@@ -2048,7 +2048,7 @@ def _get_clipboard_text() -> str:
 
 
 def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
-    """Lê uma tecla (incluindo setas, Esc e UTF-8 acentuado) sem bloquear além de timeout."""
+    """Reads one key (including arrows, Esc and accented UTF-8) without blocking past the timeout."""
     rlist, _, _ = select.select([tty_fd], [], [], timeout)
     if not rlist:
         return None
@@ -2057,7 +2057,7 @@ def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
         return None
 
     if b == b"\x1b":
-        # Verificar se é uma sequência de escape (seta, Home/End, Alt+tecla) ou Esc puro
+        # Check whether it is an escape sequence (arrow, Home/End, Alt+key) or a bare Esc
         seq = b
         while True:
             r2, _, _ = select.select([tty_fd], [], [], 0.015)
@@ -2102,7 +2102,7 @@ def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
     if first < 0x80:
         return b.decode("ascii", errors="ignore")
 
-    # Caractere UTF-8 multibyte (ex: á, ã, ç, é)
+    # Multibyte UTF-8 character (e.g. accented letters)
     need = 0
     if (first & 0xE0) == 0xC0:
         need = 1
@@ -2120,7 +2120,7 @@ def _read_key(tty_fd: int, timeout: float = 0.065) -> str | None:
 
 
 class OmarchyMainMenu:
-    """Menu inicial interativo e estilizado com a paleta do tema ativo do Omarchy."""
+    """Interactive, styled start menu using the active Omarchy theme palette."""
 
     def __init__(self) -> None:
         self.selected = 0
@@ -2190,18 +2190,18 @@ class OmarchyMainMenu:
                 short_q = truncate_plain(last_q, 14)
                 resume_badge = f"“{short_q}” • {len(last_list)}"
             else:
-                resume_badge = f"{len(last_list)} vídeos"
-            resume_label = "Continuar Última Sessão"
+                resume_badge = f"{len(last_list)} videos"
+            resume_label = "Resume Last Session"
             resume_icon = "󰑈"
-            resume_desc = "Retoma instantaneamente sua última lista carregada no explorador TUI (fzf)"
+            resume_desc = "Instantly resumes your last loaded list in the TUI explorer (fzf)"
         else:
-            resume_badge = "Explorador"
-            resume_label = "Abrir Explorador TUI"
+            resume_badge = "Explorer"
+            resume_label = "Open TUI Explorer"
             resume_icon = "󰕧"
-            resume_desc = "Abre direto a interface principal fzf com preview de thumbnails Sixel/Kitty"
+            resume_desc = "Opens the main fzf interface directly with Sixel/Kitty thumbnail preview"
 
-        dl_badge = f"{len(downloads)} arquivo" + ("s" if len(downloads) != 1 else "") if downloads else "vazio"
-        hist_badge = f"{len(watch_hist)} salvo" + ("s" if len(watch_hist) != 1 else "")
+        dl_badge = f"{len(downloads)} file" + ("s" if len(downloads) != 1 else "") if downloads else "empty"
+        hist_badge = f"{len(watch_hist)} video" + ("s" if len(watch_hist) != 1 else "")
 
         return [
             {
@@ -2209,9 +2209,9 @@ class OmarchyMainMenu:
                 "key": "1",
                 "icon": "",
                 "color": "cyan",
-                "label": "Pesquisar no YouTube",
-                "badge": "Busca HD",
-                "desc": "Pesquise vídeos no YouTube com thumbnails Sixel/Kitty em HD",
+                "label": "Search YouTube",
+                "badge": "HD Search",
+                "desc": "Search YouTube videos with HD Sixel/Kitty thumbnails",
             },
             {
                 "id": "resume",
@@ -2227,36 +2227,36 @@ class OmarchyMainMenu:
                 "key": "3",
                 "icon": "󰋚",
                 "color": "yellow",
-                "label": "Histórico de Vídeos",
+                "label": "Video History",
                 "badge": hist_badge,
-                "desc": "Revise e assista novamente aos últimos vídeos abertos no omayt",
+                "desc": "Review and rewatch the latest videos opened in omayt",
             },
             {
                 "id": "music",
                 "key": "4",
                 "icon": "󰎆",
                 "color": "magenta",
-                "label": "Modo Música (Visualizador Cava)",
+                "label": "Music Mode (Cava Visualizer)",
                 "badge": "FFT 60 FPS",
-                "desc": "Ouça músicas no modo áudio com espectro Cava 60 FPS no terminal",
+                "desc": "Listen to songs in audio mode with a 60 FPS Cava spectrum",
             },
             {
                 "id": "url",
                 "key": "5",
                 "icon": "󰌷",
                 "color": "green",
-                "label": "Reproduzir Link / URL Direta",
+                "label": "Play Link / Direct URL",
                 "badge": "MPV / Cava",
-                "desc": "Cole um link do YouTube (auto-detecta clipboard) e escolha o player",
+                "desc": "Paste a YouTube link (auto-detects clipboard) and choose the player",
             },
             {
                 "id": "downloads",
                 "key": "6",
                 "icon": "󰇚",
                 "color": "blue",
-                "label": "Biblioteca de Downloads",
+                "label": "Downloads Library",
                 "badge": dl_badge,
-                "desc": "Reproduza vídeos MP4 e músicas MP3 salvos em ~/Videos/omayt",
+                "desc": "Play MP4 videos and MP3 songs saved in ~/Videos/omayt",
             },
             {
                 "id": "divider",
@@ -2266,18 +2266,18 @@ class OmarchyMainMenu:
                 "key": "7",
                 "icon": "󰒓",
                 "color": "orange",
-                "label": "Configurações & Diagnóstico",
+                "label": "Settings & Diagnostics",
                 "badge": THEME.name,
-                "desc": "Dependências, paleta Omarchy ativa, cache de thumbnails e VA-API",
+                "desc": "Dependencies, active Omarchy palette, thumbnail cache and VA-API",
             },
             {
                 "id": "quit",
                 "key": "0",
                 "icon": "󰗼",
                 "color": "red",
-                "label": "Sair do omayt",
+                "label": "Quit omayt",
                 "badge": "q / Esc",
-                "desc": "Encerra o omayt e retorna ao seu terminal",
+                "desc": "Closes omayt and returns to your terminal",
             },
         ]
 
@@ -2314,7 +2314,7 @@ class OmarchyMainMenu:
                 if ch == " ":
                     parts.append(" ")
                 else:
-                    # Gradiente diagonal suave animado pelo tema ativo do Omarchy
+                    # Smooth diagonal gradient animated by the active Omarchy theme
                     t = (c_idx / max(1, logo_w)) * 0.65 + (r_idx / 6.0) * 0.25 - phase * 0.16
                     parts.append(f"{self._gradient_color_at(t, bold=True)}{ch}")
             parts.append(rst)
@@ -2379,7 +2379,7 @@ class OmarchyMainMenu:
         c_dfg = THEME.ansi_fg("dark_foreground")
         rst = THEME.reset
 
-        # Fundo suave para linha selecionada (mistura do tema Omarchy)
+        # Soft background for the selected row (Omarchy theme blend)
         sel_rgb = THEME.blend_rgb(THEME.rgb("lighter_background"), THEME.rgb("accent"), 0.16)
         bg_sel = THEME.ansi_rgb_bg(*sel_rgb)
 
@@ -2396,7 +2396,7 @@ class OmarchyMainMenu:
 
         lines_buf: list[str] = []
 
-        # 1. Cabeçalho / Logo
+        # 1. Header / Logo
         if show_big_logo:
             lines_buf.extend(self._render_logo_lines(phase, cols))
             eq_l = self._render_mini_eq(phase, reverse=False)
@@ -2415,23 +2415,23 @@ class OmarchyMainMenu:
             c_pad = " " * max(0, (cols - visible_len(compact_hdr)) // 2)
             lines_buf.append(f"{c_pad}{compact_hdr}")
 
-        # 2. Barra de status (Pills)
+        # 2. Status bar (Pills)
         if show_pills:
             pills = (
                 f"{c_mag}󰏘 {THEME.name}{rst}  {c_mut}│{rst}  "
                 f"{c_grn}󰍛 VA-API{rst}  {c_mut}│{rst}  "
                 f"{c_cyn}󰒃 Anti-403{rst}  {c_mut}│{rst}  "
-                f"{c_yel}󰋚 {len(watch_hist)} no histórico{rst}"
+                f"{c_yel}󰋚 {len(watch_hist)} in history{rst}"
             )
             p_pad = " " * max(0, (cols - visible_len(pills)) // 2)
             lines_buf.append(f"{p_pad}{pills}")
 
         lines_buf.append("")
 
-        # 3. Card principal do Menu
+        # 3. Main Menu card
         border_col = THEME.ansi_fg("accent")
         dim_border = THEME.ansi_fg("muted")
-        top_left = f"{c_acc}󰕧 Menu Principal{rst}"
+        top_left = f"{c_acc}󰕧 Main Menu{rst}"
         top_right = f"{c_mut}Sixel HD • Cava{rst}" if inner_w >= 58 else ""
         lines_buf.append(left_margin + self._box_top(inner_w, top_left, top_right, border_col))
 
@@ -2454,7 +2454,7 @@ class OmarchyMainMenu:
                 fg_lbl = THEME.ansi_fg("bright_foreground", bold=True)
                 fg_key = THEME.ansi_fg("yellow", bold=True)
                 fg_badge = THEME.ansi_fg(color_key, bold=False)
-                # Evitar \033[0m dentro da linha selecionada para manter o fundo contínuo
+                # Avoid \033[0m inside the selected row to keep the background continuous
                 left_part = f"{c_acc}┃ ❯{bg_sel} {fg_key}[{key_lbl}]{bg_sel} {fg_icon}{icon}  {fg_lbl}{label}"
                 right_part = f"\033[22m{fg_badge}{badge} "
             else:
@@ -2465,7 +2465,7 @@ class OmarchyMainMenu:
 
             avail_gap = inner_w - visible_len(left_part) - visible_len(right_part)
             if avail_gap < 1:
-                # Truncar label se o terminal estiver estreito
+                # Truncate the label if the terminal is narrow
                 max_lbl = max(10, inner_w - visible_len(right_part) - 16)
                 short_lbl = truncate_plain(label, max_lbl)
                 if is_sel:
@@ -2479,7 +2479,7 @@ class OmarchyMainMenu:
                 left_margin + self._box_line(row_content, inner_w, border_col, bg=(bg_sel if is_sel else ""))
             )
 
-        # 4. Rodapé contextual dentro do Card (ou Toast de feedback)
+        # 4. Contextual footer inside the Card (or feedback Toast)
         lines_buf.append(left_margin + self._box_div(inner_w, dim_border))
         if self.status_toast and time.time() < self.status_toast_until:
             info_txt = truncate_plain(self.status_toast, inner_w - 5)
@@ -2490,7 +2490,7 @@ class OmarchyMainMenu:
         lines_buf.append(left_margin + self._box_line(info_row, inner_w, border_col))
         lines_buf.append(left_margin + self._box_bot(inner_w, border_col))
 
-        # 5. Faixa de pesquisas recentes (quando houver espaço)
+        # 5. Recent searches strip (when there is room)
         if show_recent_bar:
             recent_chunks: list[str] = []
             used_w = 14
@@ -2502,28 +2502,28 @@ class OmarchyMainMenu:
                 recent_chunks.append(piece)
                 used_w += visible_len(piece) + 4
             if recent_chunks:
-                rec_line = f"{c_mut}󰋚 Recentes:{rst}  " + f"  {c_mut}•{rst}  ".join(recent_chunks)
+                rec_line = f"{c_mut}󰋚 Recent:{rst}  " + f"  {c_mut}•{rst}  ".join(recent_chunks)
                 r_pad = " " * max(0, (cols - visible_len(rec_line)) // 2)
                 lines_buf.append(f"{r_pad}{rec_line}")
 
-        # 6. Legenda de atalhos
+        # 6. Shortcut legend
         legend = (
-            f"{c_yel}[↑/↓ j/k]{rst} {c_mut}Navegar{rst}   "
-            f"{c_yel}[Enter]{rst} {c_mut}Abrir{rst}   "
-            f"{c_yel}[/]{rst} {c_mut}Buscar{rst}   "
-            f"{c_yel}[1-7]{rst} {c_mut}Atalho{rst}   "
-            f"{c_red}[q/Esc]{rst} {c_mut}Sair{rst}"
+            f"{c_yel}[↑/↓ j/k]{rst} {c_mut}Navigate{rst}   "
+            f"{c_yel}[Enter]{rst} {c_mut}Open{rst}   "
+            f"{c_yel}[/]{rst} {c_mut}Search{rst}   "
+            f"{c_yel}[1-7]{rst} {c_mut}Shortcut{rst}   "
+            f"{c_red}[q/Esc]{rst} {c_mut}Quit{rst}"
         )
         if visible_len(legend) > cols - 2:
             legend = (
-                f"{c_yel}[↑/↓]{rst} Navegar  {c_yel}[Enter]{rst} Abrir  "
-                f"{c_yel}[/]{rst} Buscar  {c_red}[q]{rst} Sair"
+                f"{c_yel}[↑/↓]{rst} Navigate  {c_yel}[Enter]{rst} Open  "
+                f"{c_yel}[/]{rst} Search  {c_red}[q]{rst} Quit"
             )
         leg_pad = " " * max(0, (cols - visible_len(legend)) // 2)
         lines_buf.append("")
         lines_buf.append(f"{leg_pad}{legend}")
 
-        # Centralização vertical suave
+        # Smooth vertical centering
         top_pad = max(0, (rows - len(lines_buf)) // 2)
         out: list[str] = ["\033[?2026h\033[H"]
         for _ in range(top_pad):
@@ -2536,11 +2536,11 @@ class OmarchyMainMenu:
         sys.stdout.flush()
 
     def _prompt_search(self, music_mode: bool = False) -> str | None:
-        """Modal estilizado de busca no YouTube com sugestões do histórico de pesquisas."""
+        """Styled YouTube search modal with suggestions from the search history."""
         assert self.tty_fd is not None
         query = ""
         recent = load_json_file(SEARCH_HIST_FILE, [])[:6]
-        hist_idx = -1  # -1 = digitando no campo de busca
+        hist_idx = -1  # -1 = typing in the search field
 
         while True:
             term = shutil.get_terminal_size((100, 32))
@@ -2563,22 +2563,22 @@ class OmarchyMainMenu:
             sel_bg = THEME.ansi_rgb_bg(*THEME.blend_rgb(THEME.rgb("lighter_background"), THEME.rgb("accent"), 0.16))
 
             title_l = (
-                f"{c_mag}󰎆 Buscar Música (Modo Cava){rst}"
+                f"{c_mag}󰎆 Search Music (Cava Mode){rst}"
                 if music_mode
-                else f"{c_cyn} Pesquisar no YouTube{rst}"
+                else f"{c_cyn} Search YouTube{rst}"
             )
-            title_r = f"{c_mut}Esc: Voltar{rst}"
+            title_r = f"{c_mut}Esc: Back{rst}"
 
             lines: list[str] = []
             lines.append(lm + self._box_top(inner_w, title_l, title_r, b_col))
             lines.append(lm + self._box_line("", inner_w, b_col))
 
-            # Caixa de input estilizada
+            # Styled input box
             input_bg = THEME.ansi_bg("darker_background")
             cursor_ch = f"{c_yel}▌{input_bg}" if hist_idx == -1 else ""
             shown_q = query if visible_len(query) <= inner_w - 10 else query[-(inner_w - 10):]
             if not shown_q and hist_idx == -1:
-                prompt_inner = f" {c_cyn}❯{input_bg} {cursor_ch}{c_mut}Digite sua busca e pressione Enter..."
+                prompt_inner = f" {c_cyn}❯{input_bg} {cursor_ch}{c_mut}Type your search and press Enter..."
             else:
                 prompt_inner = f" {c_cyn}❯{input_bg} {c_fg}{shown_q}{cursor_ch}"
             lines.append(lm + self._box_line(prompt_inner, inner_w, b_col, bg=input_bg))
@@ -2588,7 +2588,7 @@ class OmarchyMainMenu:
                 lines.append(lm + self._box_div(inner_w, dim_b))
                 lines.append(
                     lm + self._box_line(
-                        f"{c_acc}󰋚 Pesquisas Recentes{rst} {c_mut}(use ↓ para selecionar){rst}",
+                        f"{c_acc}󰋚 Recent Searches{rst} {c_mut}(use ↓ to select){rst}",
                         inner_w,
                         b_col,
                     )
@@ -2604,16 +2604,16 @@ class OmarchyMainMenu:
 
             lines.append(lm + self._box_div(inner_w, dim_b))
             hint = (
-                f" {c_yel}[Enter]{rst} {c_mut}Buscar{rst}  "
-                f"{c_yel}[↑/↓]{rst} {c_mut}Recentes{rst}  "
-                f"{c_yel}[Ctrl+U]{rst} {c_mut}Limpar{rst}  "
-                f"{c_red}[Esc]{rst} {c_mut}Voltar{rst}"
+                f" {c_yel}[Enter]{rst} {c_mut}Search{rst}  "
+                f"{c_yel}[↑/↓]{rst} {c_mut}Recent{rst}  "
+                f"{c_yel}[Ctrl+U]{rst} {c_mut}Clear{rst}  "
+                f"{c_red}[Esc]{rst} {c_mut}Back{rst}"
             )
             if visible_len(hint) > inner_w:
                 hint = (
-                    f" {c_yel}[Enter]{rst} {c_mut}Buscar{rst}  "
-                    f"{c_yel}[↑/↓]{rst} {c_mut}Recentes{rst}  "
-                    f"{c_red}[Esc]{rst} {c_mut}Voltar{rst}"
+                    f" {c_yel}[Enter]{rst} {c_mut}Search{rst}  "
+                    f"{c_yel}[↑/↓]{rst} {c_mut}Recent{rst}  "
+                    f"{c_red}[Esc]{rst} {c_mut}Back{rst}"
                 )
             lines.append(lm + self._box_line(hint, inner_w, b_col))
             lines.append(lm + self._box_bot(inner_w, b_col))
@@ -2633,7 +2633,7 @@ class OmarchyMainMenu:
                 if chosen:
                     return chosen
                 if music_mode:
-                    # Permite abrir o modo música direto com a lista/histórico atual se vazio
+                    # Allows opening music mode directly with the current list/history if empty
                     return ""
                 continue
             if key == "DOWN" and recent:
@@ -2655,20 +2655,20 @@ class OmarchyMainMenu:
                 query += key
 
     def _prompt_direct_url(self) -> tuple[str, str] | None:
-        """Modal para abrir um link do YouTube diretamente (com auto-detecção da área de transferência)."""
+        """Modal to open a YouTube link directly (with clipboard auto-detection)."""
         assert self.tty_fd is not None
         clip = _get_clipboard_text()
         url = clip if extract_youtube_id(clip) else ""
         clip_detected = bool(url)
         modes = [
-            ("window", "1", "󰕧", "Janela MPV (Wayland • VA-API)", "accent"),
-            ("inline-pixels", "2", "󰥶", "Vídeo no Terminal (Sixel / Kitty)", "cyan"),
-            ("inline-blocks", "3", "󰍹", "Blocos TrueColor no Terminal (TCT)", "green"),
-            ("audio", "4", "󰎆", "Apenas Áudio + Visualizador Cava", "magenta"),
-            ("download", "5", "󰇚", "Baixar Vídeo (MP4) ou Áudio (MP3)", "yellow"),
+            ("window", "1", "󰕧", "MPV Window (Wayland • VA-API)", "accent"),
+            ("inline-pixels", "2", "󰥶", "Video in Terminal (Sixel / Kitty)", "cyan"),
+            ("inline-blocks", "3", "󰍹", "TrueColor Blocks in Terminal (TCT)", "green"),
+            ("audio", "4", "󰎆", "Audio Only + Cava Visualizer", "magenta"),
+            ("download", "5", "󰇚", "Download Video (MP4) or Audio (MP3)", "yellow"),
         ]
         mode_idx = 0
-        focus = "url"  # "url" ou "mode"
+        focus = "url"  # "url" or "mode"
 
         while True:
             term = shutil.get_terminal_size((100, 32))
@@ -2691,23 +2691,23 @@ class OmarchyMainMenu:
             sel_bg = THEME.ansi_rgb_bg(*THEME.blend_rgb(THEME.rgb("lighter_background"), THEME.rgb("green"), 0.16))
 
             lines: list[str] = []
-            lines.append(lm + self._box_top(inner_w, f"{c_grn}󰌷 Reproduzir Link / URL Direta{rst}", f"{c_mut}Esc: Voltar{rst}", b_col))
+            lines.append(lm + self._box_top(inner_w, f"{c_grn}󰌷 Play Link / Direct URL{rst}", f"{c_mut}Esc: Back{rst}", b_col))
             lines.append(lm + self._box_line("", inner_w, b_col))
 
             if clip_detected:
-                lines.append(lm + self._box_line(f" {c_grn}✓{rst} {c_txt}Link do YouTube detectado na área de transferência!{rst}", inner_w, b_col))
+                lines.append(lm + self._box_line(f" {c_grn}✓{rst} {c_txt}YouTube link detected in the clipboard!{rst}", inner_w, b_col))
 
             shown_u = url if visible_len(url) <= inner_w - 10 else "…" + url[-(inner_w - 11):]
             cur = f"{c_yel}▌{input_bg}" if focus == "url" else ""
             if not shown_u and focus == "url":
-                u_row = f" {c_grn}󰌷{input_bg} {cur}{c_mut}Cole a URL ou ID do vídeo do YouTube..."
+                u_row = f" {c_grn}󰌷{input_bg} {cur}{c_mut}Paste the YouTube video URL or ID..."
             else:
                 u_row = f" {c_grn}󰌷{input_bg} {c_fg}{shown_u}{cur}"
             lines.append(lm + self._box_line(u_row, inner_w, b_col, bg=input_bg))
             lines.append(lm + self._box_line("", inner_w, b_col))
 
             lines.append(lm + self._box_div(inner_w, dim_b))
-            lines.append(lm + self._box_line(f"{c_acc}Modo de Reprodução{rst} {c_mut}(Tab ou ↑/↓ para alternar){rst}", inner_w, b_col))
+            lines.append(lm + self._box_line(f"{c_acc}Playback Mode{rst} {c_mut}(Tab or ↑/↓ to switch){rst}", inner_w, b_col))
 
             for idx, (_m_id, m_key, m_icon, m_lbl, m_col) in enumerate(modes):
                 fg_i = THEME.ansi_fg(m_col, bold=(idx == mode_idx))
@@ -2720,16 +2720,16 @@ class OmarchyMainMenu:
 
             lines.append(lm + self._box_div(inner_w, dim_b))
             hint = (
-                f" {c_yel}[Enter]{rst} {c_mut}Abrir{rst}  "
-                f"{c_yel}[↑/↓]{rst} {c_mut}Modo{rst}  "
-                f"{c_yel}[Ctrl+U]{rst} {c_mut}Limpar{rst}  "
-                f"{c_red}[Esc]{rst} {c_mut}Voltar{rst}"
+                f" {c_yel}[Enter]{rst} {c_mut}Open{rst}  "
+                f"{c_yel}[↑/↓]{rst} {c_mut}Mode{rst}  "
+                f"{c_yel}[Ctrl+U]{rst} {c_mut}Clear{rst}  "
+                f"{c_red}[Esc]{rst} {c_mut}Back{rst}"
             )
             if visible_len(hint) > inner_w:
                 hint = (
-                    f" {c_yel}[Enter]{rst} {c_mut}Abrir{rst}  "
-                    f"{c_yel}[↑/↓]{rst} {c_mut}Modo{rst}  "
-                    f"{c_red}[Esc]{rst} {c_mut}Voltar{rst}"
+                    f" {c_yel}[Enter]{rst} {c_mut}Open{rst}  "
+                    f"{c_yel}[↑/↓]{rst} {c_mut}Mode{rst}  "
+                    f"{c_red}[Esc]{rst} {c_mut}Back{rst}"
                 )
             lines.append(lm + self._box_line(hint, inner_w, b_col))
             lines.append(lm + self._box_bot(inner_w, b_col))
@@ -2771,7 +2771,7 @@ class OmarchyMainMenu:
                 url += key
 
     def _show_downloads_library(self) -> tuple[Path, str] | None:
-        """Navegador interativo dos arquivos baixados em ~/Videos/omayt."""
+        """Interactive browser for the files downloaded to ~/Videos/omayt."""
         assert self.tty_fd is not None
         files = _list_downloaded_files()
         sel = 0
@@ -2801,7 +2801,7 @@ class OmarchyMainMenu:
             lines.append(
                 lm + self._box_top(
                     inner_w,
-                    f"{c_blu}󰇚 Biblioteca de Downloads{rst}",
+                    f"{c_blu}󰇚 Downloads Library{rst}",
                     f"{c_mut}~/Videos/omayt ({len(files)}){rst}",
                     b_col,
                 )
@@ -2809,8 +2809,8 @@ class OmarchyMainMenu:
 
             if not files:
                 lines.append(lm + self._box_line("", inner_w, b_col))
-                lines.append(lm + self._box_line(f" {c_mut}Nenhum vídeo ou música baixado ainda.{rst}", inner_w, b_col))
-                tip_txt = truncate_plain("Use Alt+D na TUI para baixar vídeos MP4 ou MP3.", inner_w - 2)
+                lines.append(lm + self._box_line(f" {c_mut}No video or song downloaded yet.{rst}", inner_w, b_col))
+                tip_txt = truncate_plain("Use Alt+D in the TUI to download MP4 or MP3 files.", inner_w - 2)
                 lines.append(lm + self._box_line(f" {c_txt}{tip_txt}{rst}", inner_w, b_col))
                 lines.append(lm + self._box_line("", inner_w, b_col))
             else:
@@ -2841,13 +2841,13 @@ class OmarchyMainMenu:
             lines.append(lm + self._box_div(inner_w, dim_b))
             if files:
                 hint = (
-                    f" {c_yel}[Enter]{rst} {c_mut}Tocar{rst}   "
+                    f" {c_yel}[Enter]{rst} {c_mut}Play{rst}   "
                     f"{c_mag}[a]{rst} {c_mut}Cava{rst}   "
                     f"{c_acc}[i]{rst} {c_mut}Terminal{rst}   "
-                    f"{c_red}[q/Esc]{rst} {c_mut}Voltar{rst}"
+                    f"{c_red}[q/Esc]{rst} {c_mut}Back{rst}"
                 )
             else:
-                hint = f" {c_red}[Enter/q/Esc]{rst} {c_mut}Voltar ao Menu Principal{rst}"
+                hint = f" {c_red}[Enter/q/Esc]{rst} {c_mut}Back to Main Menu{rst}"
             lines.append(lm + self._box_line(hint, inner_w, b_col))
             lines.append(lm + self._box_bot(inner_w, b_col))
 
@@ -2879,7 +2879,7 @@ class OmarchyMainMenu:
                 return (files[sel], "inline-pixels")
 
     def _show_diagnostics(self) -> None:
-        """Tela de diagnóstico do sistema, paleta Omarchy ativa e manutenção do cache."""
+        """System diagnostics, active Omarchy palette and cache maintenance screen."""
         assert self.tty_fd is not None
         feedback = ""
 
@@ -2918,7 +2918,7 @@ class OmarchyMainMenu:
             row1 = "   ".join(badge(ok, n) for ok, n in checks[:4])
             row2 = "   ".join(badge(ok, n) for ok, n in checks[4:])
 
-            # Paleta Omarchy
+            # Omarchy palette
             swatch_keys = ("accent", "cyan", "blue", "green", "yellow", "magenta", "red")
             sw_sep = "  " if inner_w >= 58 else " "
             swatches = sw_sep.join(f"{THEME.ansi_fg(k, bold=True)}██{rst} {c_mut}{k[:3]}{rst}" for k in swatch_keys)
@@ -2932,19 +2932,19 @@ class OmarchyMainMenu:
             lines.append(
                 lm + self._box_top(
                     inner_w,
-                    f"{c_org}󰒓 Configurações & Diagnóstico{rst}",
+                    f"{c_org}󰒓 Settings & Diagnostics{rst}",
                     f"{c_mut}omayt v{APP_VERSION}{rst}",
                     b_col,
                 )
             )
-            lines.append(lm + self._box_line(f"{c_acc}Dependências do Sistema:{rst}", inner_w, b_col))
+            lines.append(lm + self._box_line(f"{c_acc}System Dependencies:{rst}", inner_w, b_col))
             lines.append(lm + self._box_line(f"  {row1}", inner_w, b_col))
             lines.append(lm + self._box_line(f"  {row2}", inner_w, b_col))
             lines.append(lm + self._box_div(inner_w, dim_b))
 
             lines.append(
                 lm + self._box_line(
-                    f"{c_acc}Tema Omarchy Ativo:{rst} {c_fg}{THEME.name}{rst}",
+                    f"{c_acc}Active Omarchy Theme:{rst} {c_fg}{THEME.name}{rst}",
                     inner_w,
                     b_col,
                 )
@@ -2952,21 +2952,21 @@ class OmarchyMainMenu:
             lines.append(lm + self._box_line(f"  {swatches}", inner_w, b_col))
             lines.append(lm + self._box_div(inner_w, dim_b))
 
-            lines.append(lm + self._box_line(f"{c_acc}Armazenamento Local:{rst}", inner_w, b_col))
+            lines.append(lm + self._box_line(f"{c_acc}Local Storage:{rst}", inner_w, b_col))
             lines.append(
                 lm + self._box_line(
-                    f"  {c_cyn}󰥶 Cache HD :{rst} {c_txt}{thumbs_cnt} arquivos ({_format_bytes(thumbs_sz)}){rst}",
+                    f"  {c_cyn}󰥶 Cache HD :{rst} {c_txt}{thumbs_cnt} files ({_format_bytes(thumbs_sz)}){rst}",
                     inner_w,
                     b_col,
                 )
             )
             hist_summary = truncate_plain(
-                f"{watch_cnt} vídeos • {search_cnt} pesquisas • {dl_cnt} downloads",
+                f"{watch_cnt} videos • {search_cnt} searches • {dl_cnt} downloads",
                 max(16, inner_w - 16),
             )
             lines.append(
                 lm + self._box_line(
-                    f"  {c_yel}󰋚 Histórico:{rst} {c_txt}{hist_summary}{rst}",
+                    f"  {c_yel}󰋚 History  :{rst} {c_txt}{hist_summary}{rst}",
                     inner_w,
                     b_col,
                 )
@@ -2979,16 +2979,16 @@ class OmarchyMainMenu:
             lines.append(lm + self._box_div(inner_w, dim_b))
             actions = (
                 f" {c_yel}[f]{rst} {c_mut}Fix VA-API/403{rst}  "
-                f"{c_yel}[c]{rst} {c_mut}Limpar Cache{rst}  "
-                f"{c_yel}[h]{rst} {c_mut}Limpar Buscas{rst}  "
-                f"{c_red}[q/Esc]{rst} {c_mut}Voltar{rst}"
+                f"{c_yel}[c]{rst} {c_mut}Clear Cache{rst}  "
+                f"{c_yel}[h]{rst} {c_mut}Clear Searches{rst}  "
+                f"{c_red}[q/Esc]{rst} {c_mut}Back{rst}"
             )
             if visible_len(actions) > inner_w:
                 actions = (
                     f" {c_yel}[f]{rst} {c_mut}Fix{rst}  "
                     f"{c_yel}[c]{rst} {c_mut}Cache{rst}  "
-                    f"{c_yel}[h]{rst} {c_mut}Buscas{rst}  "
-                    f"{c_red}[q/Esc]{rst} {c_mut}Voltar{rst}"
+                    f"{c_yel}[h]{rst} {c_mut}Searches{rst}  "
+                    f"{c_red}[q/Esc]{rst} {c_mut}Back{rst}"
                 )
             lines.append(lm + self._box_line(actions, inner_w, b_col))
             lines.append(lm + self._box_bot(inner_w, b_col))
@@ -3006,9 +3006,9 @@ class OmarchyMainMenu:
             if key in ("f", "F"):
                 ok = ensure_global_ytdlp_fix()
                 feedback = (
-                    "Otimizações Anti-403 e VA-API aplicadas em yt-dlp e mpv!"
+                    "Anti-403 and VA-API optimizations applied to yt-dlp and mpv!"
                     if ok
-                    else "Não foi possível gravar nas pastas de configuração."
+                    else "Could not write to the configuration folders."
                 )
             elif key in ("c", "C"):
                 removed = 0
@@ -3020,10 +3020,10 @@ class OmarchyMainMenu:
                                 removed += 1
                         except OSError:
                             pass
-                feedback = f"Cache limpo: {removed} arquivos de thumbnails removidos."
+                feedback = f"Cache cleared: {removed} thumbnail files removed."
             elif key in ("h", "H"):
                 save_json_file(SEARCH_HIST_FILE, [])
-                feedback = "Histórico de pesquisas recentes limpo."
+                feedback = "Recent search history cleared."
 
     def run(self) -> int:
         ensure_dirs()
@@ -3036,7 +3036,7 @@ class OmarchyMainMenu:
                 self.selected = sel_indices[0]
 
             if not self._enter_screen():
-                # Fallback sem TTY interativo -> abrir TUI padrão
+                # Fallback without an interactive TTY -> open the default TUI
                 return run_tui()
 
             action_id: str | None = None
@@ -3139,7 +3139,7 @@ class OmarchyMainMenu:
             finally:
                 self._leave_screen()
 
-            # Executar ação escolhida fora da tela alternativa (fzf / mpv / Cava)
+            # Run the chosen action outside the alternate screen (fzf / mpv / Cava)
             if action_id == "quit" or action_id is None:
                 return 0
             elif action_id == "search_go":
@@ -3172,7 +3172,7 @@ def run_main_menu() -> int:
 
 
 # ============================================================================
-# 10. LOOP PRINCIPAL DA TUI (FZF + SIXEL HD PREVIEW + RELOAD AO VIVO)
+# 10. MAIN TUI LOOP (FZF + SIXEL HD PREVIEW + LIVE RELOAD)
 # ============================================================================
 
 
@@ -3186,7 +3186,7 @@ def run_tui(
     ensure_global_ytdlp_fix()
 
     if not shutil.which("fzf"):
-        sys.stderr.write("Erro: 'fzf' não está instalado.\n")
+        sys.stderr.write("Error: 'fzf' is not installed.\n")
         return 1
 
     script = str(Path(__file__).resolve())
@@ -3199,30 +3199,30 @@ def run_tui(
         save_json_file(LAST_LIST_FILE, videos)
         save_json_file(STATE_FILE, {"mode": "history", "query": "", "count": len(videos), "limit": 0, "has_more": False})
         prefetch_thumbnails_async([v.get("id", "") for v in videos])
-        header_note = "Histórico de Vídeos Assistidos"
+        header_note = "Watched Video History"
     elif current_query:
         c_acc = THEME.ansi_fg("accent", bold=True)
         rst = THEME.reset
         sys.stderr.write(
-            f"  {c_acc}󰗃 omayt:{rst} Pesquisando “{current_query}” no YouTube ({SEARCH_PAGE_SIZE} resultados)...\r"
+            f"  {c_acc}󰗃 omayt:{rst} Searching YouTube for “{current_query}” ({SEARCH_PAGE_SIZE} results)...\r"
         )
         sys.stderr.flush()
         videos = search_youtube(current_query, max_results=SEARCH_PAGE_SIZE)
         search_limit = SEARCH_PAGE_SIZE
         has_more = bool(videos)
-        header_note = f"Busca: {current_query} • {len(videos)} vídeos"
+        header_note = f"Search: {current_query} • {len(videos)} videos"
     else:
         videos = load_json_file(LAST_LIST_FILE, [])
         if not videos:
             videos = load_json_file(HISTORY_FILE, [])
-            header_note = "Histórico Recente" if videos else ""
+            header_note = "Recent History" if videos else ""
         else:
             state = load_json_file(STATE_FILE, {})
             current_query = (state.get("query") or "").strip()
             search_limit = int(state.get("limit") or max(SEARCH_PAGE_SIZE, len(videos)))
             has_more = bool(current_query and state.get("has_more", True))
             header_note = (
-                f"Última busca: {current_query} • {len(videos)} vídeos"
+                f"Last search: {current_query} • {len(videos)} videos"
                 if current_query
                 else ""
             )
@@ -3242,21 +3242,21 @@ def run_tui(
         next_load_pos = None
 
         if default_mode == "audio":
-            enter_hint = "Enter:󰎆 Tocar Cava"
-            mode_tag = " • Modo Música"
+            enter_hint = "Enter:󰎆 Play Cava"
+            mode_tag = " • Music Mode"
         else:
-            enter_hint = "Enter:Abrir/Buscar"
+            enter_hint = "Enter:Open/Search"
             mode_tag = ""
 
         more_hint = f" │ Alt-M:+{SEARCH_PAGE_SIZE}" if can_load_more else ""
         esc_hint = " │ Esc:Menu" if from_menu else ""
         header_bar = (
-            f"{enter_hint} │ Ctrl-S:Buscar{more_hint} │ Alt-I:Terminal │ "
-            f"Alt-A:󰎆 Cava │ Alt-D:Baixar │ Ctrl-H:Histórico{esc_hint}"
+            f"{enter_hint} │ Ctrl-S:Search{more_hint} │ Alt-I:Terminal │ "
+            f"Alt-A:󰎆 Cava │ Alt-D:Download │ Ctrl-H:History{esc_hint}"
         )
 
         label_query = (
-            f" • Busca: {current_query} ({len(videos)})"
+            f" • Search: {current_query} ({len(videos)})"
             if current_query
             else ""
         )
@@ -3269,12 +3269,12 @@ def run_tui(
             "--layout=reverse",
             "--height=100%",
             "--border=rounded",
-            f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [Tema: {THEME.name}{mode_tag}{label_query}] ",
+            f"--border-label= 󰗃 omayt • Omarchy YouTube TUI [Theme: {THEME.name}{mode_tag}{label_query}] ",
             "--border-label-pos=3",
-            "--preview-label= 󰥶 Thumbnail HD & Detalhes ",
+            "--preview-label= 󰥶 Thumbnail HD & Details ",
             "--delimiter=\t",
             "--with-nth=2..",
-            "--prompt=  Pesquisar no YouTube > ",
+            "--prompt=  Search YouTube > ",
             f"--header={header_bar}",
             "--header-first",
             "--preview-window=right:55%:border-rounded:wrap",
@@ -3327,7 +3327,7 @@ def run_tui(
             save_json_file(LAST_LIST_FILE, videos)
             save_json_file(STATE_FILE, {"mode": "history", "query": "", "count": len(videos), "limit": 0, "has_more": False})
             prefetch_thumbnails_async([v.get("id", "") for v in videos])
-            header_note = "Histórico de Vídeos Assistidos"
+            header_note = "Watched Video History"
             current_query = ""
             has_more = False
             continue
@@ -3340,8 +3340,8 @@ def run_tui(
                 rst = THEME.reset
                 os.system("clear")
                 print(
-                    f"\n  {c_acc}󰗃 omayt:{rst} Carregando {c_cyn}+{SEARCH_PAGE_SIZE} resultados{rst} "
-                    f"para “{current_query}” ({old_count + 1}–{old_count + SEARCH_PAGE_SIZE})..."
+                    f"\n  {c_acc}󰗃 omayt:{rst} Loading {c_cyn}+{SEARCH_PAGE_SIZE} resultados{rst} "
+                    f"for “{current_query}” ({old_count + 1}–{old_count + SEARCH_PAGE_SIZE})..."
                 )
                 videos, search_limit, added = load_more_youtube_results(
                     current_query,
@@ -3351,11 +3351,11 @@ def run_tui(
                 )
                 if added > 0:
                     has_more = True
-                    header_note = f"Busca: {current_query} • {len(videos)} vídeos"
+                    header_note = f"Search: {current_query} • {len(videos)} videos"
                     next_load_pos = f"pos({old_count + 2})"
                 else:
                     has_more = False
-                    header_note = f"Busca: {current_query} • {len(videos)} vídeos (fim)"
+                    header_note = f"Search: {current_query} • {len(videos)} videos (end)"
                     next_load_pos = f"pos({len(videos) + 1})" if videos else "pos(1)"
             continue
 
@@ -3366,9 +3366,9 @@ def run_tui(
                 c_yel = THEME.ansi_fg("yellow", bold=True)
                 rst = THEME.reset
                 os.system("clear")
-                print(f"\n  {c_acc}󰗃 omayt • Nova Pesquisa no YouTube{rst}")
+                print(f"\n  {c_acc}󰗃 omayt • New YouTube Search{rst}")
                 try:
-                    q = input(f"  {c_yel}  Digite sua busca:{rst} ").strip()
+                    q = input(f"  {c_yel}  Type your search:{rst} ").strip()
                 except (EOFError, KeyboardInterrupt):
                     continue
             if q:
@@ -3376,14 +3376,14 @@ def run_tui(
                 rst = THEME.reset
                 os.system("clear")
                 print(
-                    f"\n  {c_acc}󰗃 omayt:{rst} Pesquisando “{q}” no YouTube "
-                    f"({SEARCH_PAGE_SIZE} resultados) e carregando thumbnails HD..."
+                    f"\n  {c_acc}󰗃 omayt:{rst} Searching YouTube for “{q}” "
+                    f"({SEARCH_PAGE_SIZE} results) and loading HD thumbnails..."
                 )
                 videos = search_youtube(q, max_results=SEARCH_PAGE_SIZE)
                 current_query = q
                 search_limit = SEARCH_PAGE_SIZE
                 has_more = bool(videos)
-                header_note = f"Busca: {q} • {len(videos)} vídeos"
+                header_note = f"Search: {q} • {len(videos)} videos"
             continue
 
         if action in ("alt-i", "ctrl-t"):
@@ -3407,7 +3407,7 @@ def run_tui(
 
 
 # ============================================================================
-# 11. CLI & SUBCOMANDOS INTERNOS
+# 11. CLI & INTERNAL SUBCOMMANDS
 # ============================================================================
 
 
@@ -3417,29 +3417,29 @@ def print_help() -> None:
     c_grn = THEME.ansi_fg("green", bold=True)
     rst = THEME.reset
     print(
-        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Menu Interativo + Sixel HD + VA-API + Cava)
+        f"""{c_acc}󰗃 omayt v{APP_VERSION}{rst} — Omarchy YouTube TUI (Interactive Menu + Sixel HD + VA-API + Cava)
 
-{c_yel}USO:{rst}
-  omayt                        Abre o Menu Principal interativo do omayt
-  omayt --no-menu / -t         Pula o menu inicial e abre direto a TUI (fzf)
-  omayt <pesquisa>             Pesquisa direto no YouTube e abre a TUI com thumbnails HD
-  omayt -H / --history         Abre a TUI direto no Histórico de vídeos assistidos
-  omayt --fix-ytdlp            Aplica as correções (-tv_samsung, sem AV1 e VA-API) no sistema
-  omayt -h / --help            Mostra esta ajuda
+{c_yel}USAGE:{rst}
+  omayt                        Opens the interactive omayt Main Menu
+  omayt --no-menu / -t         Skips the start menu and opens the TUI directly (fzf)
+  omayt <query>                Searches YouTube directly and opens the TUI with HD thumbnails
+  omayt -H / --history         Opens the TUI directly in the watched video History
+  omayt --fix-ytdlp            Applies the fixes (-tv_samsung, no AV1 and VA-API) system-wide
+  omayt -h / --help            Shows this help
 
-{c_grn}ATALHOS DENTRO DA TUI:{rst}
-  Enter                        Assistir vídeo no mpv com aceleração VA-API (ou Cava no Modo Música)
-  Ctrl+S                       Pesquisar no YouTube o texto digitado na barra do topo (30 resultados)
-  Alt+M  (ou Ctrl+E)           Carregar mais 30 resultados na busca atual (30 em 30)
-  Alt+I  (ou Ctrl+T)           Assistir vídeo DENTRO do próprio terminal (Sixel no Foot / Kitty)
-  Alt+B                        Assistir vídeo no terminal em modo blocos TrueColor (--vo=tct)
-  Alt+A                        Ouvir apenas o áudio com VISUALIZADOR DE ESPECTRO CAVA animado!
-  Alt+W                        Forçar abertura na janela MPV (útil no Modo Música)
-  Alt+D                        Baixar vídeo (MP4) ou áudio (MP3) para ~/Videos/omayt
-  Alt+L                        Copiar link do vídeo para a área de transferência (wl-copy)
-  Ctrl+H                       Ver Histórico de vídeos assistidos
-  Ctrl+F                       Alternar filtro local da lista atual
-  Esc / Ctrl+C                 Voltar ao Menu Principal (ou sair)
+{c_grn}SHORTCUTS IN THE TUI:{rst}
+  Enter                        Watch video in mpv with VA-API acceleration (or Cava in Music Mode)
+  Ctrl+S                       Search YouTube for the text typed in the top bar (30 results)
+  Alt+M  (or Ctrl+E)           Load 30 more results for the current search (30 at a time)
+  Alt+I  (or Ctrl+T)           Watch video INSIDE the terminal itself (Sixel in Foot / Kitty)
+  Alt+B                        Watch video in the terminal in TrueColor blocks mode (--vo=tct)
+  Alt+A                        Listen to audio only with an animated CAVA SPECTRUM VISUALIZER!
+  Alt+W                        Force opening in the MPV window (useful in Music Mode)
+  Alt+D                        Download video (MP4) or audio (MP3) to ~/Videos/omayt
+  Alt+L                        Copy the video link to the clipboard (wl-copy)
+  Ctrl+H                       View watched video History
+  Ctrl+F                       Toggle local list filter
+  Esc / Ctrl+C                 Back to the Main Menu (or quit)
 """
     )
 
@@ -3473,26 +3473,26 @@ def main(argv: list[str]) -> int:
         ensure_dirs()
         ok = ensure_global_ytdlp_fix()
         if ok:
-            print("✓ Configurado ~/.config/yt-dlp/config e ~/.config/mpv/mpv.conf (VA-API + Anti-403)")
+            print("✓ Configured ~/.config/yt-dlp/config and ~/.config/mpv/mpv.conf (VA-API + Anti-403)")
         else:
-            print("⚠ Não foi possível gravar as configurações globais.")
+            print("⚠ Could not write the global configuration.")
         return 0 if ok else 1
 
     if cmd == "--internal-search":
         query = " ".join(argv[1:]).strip()
         if query:
             videos = search_youtube(query)
-            print(format_tui_rows(videos, f"Busca: {query}"))
+            print(format_tui_rows(videos, f"Search: {query}"))
         else:
             videos = load_json_file(LAST_LIST_FILE, []) or load_json_file(HISTORY_FILE, [])
-            print(format_tui_rows(videos, "Digite um termo acima e aperte Enter ou Ctrl+S"))
+            print(format_tui_rows(videos, "Type a term above and press Enter or Ctrl+S"))
         return 0
 
     if cmd == "--internal-history":
         videos = load_json_file(HISTORY_FILE, [])
         save_json_file(LAST_LIST_FILE, videos)
         prefetch_thumbnails_async([v.get("id", "") for v in videos])
-        print(format_tui_rows(videos, "Histórico de Vídeos Assistidos"))
+        print(format_tui_rows(videos, "Watched Video History"))
         return 0
 
     if cmd == "--internal-preview":
