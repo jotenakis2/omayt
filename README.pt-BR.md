@@ -156,6 +156,20 @@ omayt -v
 omayt -h
 ```
 
+### 🌍 Idioma da interface
+
+A interface vem em **inglês**, **francês** e **português do Brasil** — menu principal, rótulos do `fzf`, painel de preview, faixas dos players e `--help`. A escolha segue esta ordem:
+
+1. `OMAYT_LANG` (`en`, `pt`, `fr`, além de `pt_BR`, `pt-PT`, `fr_FR`, `fr-CA`…), que sempre tem prioridade;
+2. o idioma salvo com **`l`** em **[7] Ajustes & diagnóstico**;
+3. a locale do sistema (`LANG` / `LC_MESSAGES`), então um desktop em português já abre nesse idioma;
+4. inglês caso contrário.
+
+```bash
+# Apenas um lançamento, sem alterar o ajuste salvo
+OMAYT_LANG=fr omayt
+```
+
 ---
 
 ## ⌨️ Atalhos
