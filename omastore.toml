@@ -3,7 +3,13 @@ name = "omayt"
 summary = "Fast, visual terminal YouTube client with no API — built for Omarchy Linux"
 categories = ["AudioVideo", "Video", "Audio", "Player"]
 icon = "assets/icon.svg"
-screenshots = ["assets/preview.png"]
+screenshots = [
+  "assets/preview.png",
+  "assets/screenshot-earth.png",
+  "assets/screenshot-catppuccin-latte.png",
+  "assets/screenshot-jade-horse.png",
+  "assets/screenshot-gruvbox.png",
+]
 terminal = true
 
 [linux.x86_64]
