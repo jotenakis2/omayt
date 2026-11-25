@@ -2,7 +2,7 @@
 
 # 󰗃 omayt — Omarchy YouTube TUI
 
-**Cliente de YouTube para terminal rápido, visual e sem API — feito sob medida para o ecossistema [Omarchy Linux](https://omarchy.org).**
+**A fast, visual terminal YouTube client with no API — built for the [Omarchy Linux](https://omarchy.org) ecosystem.**
 
 [![Version](https://img.shields.io/badge/version-v1.3.0-89b4fa?style=for-the-badge)](https://github.com/sabb4th/omayt/releases)
 [![Platform](https://img.shields.io/badge/platform-Omarchy%20%7C%20Arch%20Linux-a6e3a1?style=for-the-badge)](https://omarchy.org)
@@ -11,102 +11,102 @@
 [![Audio](https://img.shields.io/badge/audio-Cava%20FFT%2060%20FPS-fab387?style=for-the-badge)](./omayt)
 [![License](https://img.shields.io/badge/license-MIT-f9e2af?style=for-the-badge)](./LICENSE)
 
-[Destaques](#-o-que-ele-tem-de-melhor) • [Modos de Reprodução](#-4-modos-de-reprodução) • [Instalação](#-dependências--instalação) • [CLI](#-como-usar-cli) • [Atalhos](#-atalhos) • [Armazenamento](#-armazenamento-local)
+[Highlights](#-what-makes-it-good) • [Playback modes](#-4-playback-modes) • [Installation](#-dependencies--installation) • [CLI](#-how-to-use-cli) • [Shortcuts](#-shortcuts) • [Storage](#-local-storage)
 
 <br />
 
-<img src="assets/preview.png" alt="omayt v1.3.0 — Menu Principal no Omarchy Linux com tema Catppuccin" width="100%" />
+<img src="assets/preview.png" alt="omayt v1.3.0 — Main menu on Omarchy Linux with the Catppuccin theme" width="100%" />
 
-*Menu Principal interativo do `omayt v1.3.0` rodando em janela flutuante no Hyprland / Omarchy com o tema Catppuccin sincronizado automaticamente.*
+*Interactive main menu of `omayt v1.3.0` running in a floating window on Hyprland / Omarchy with the Catppuccin theme, synced automatically.*
 
 </div>
 
 ---
 
-## Por que o `omayt`?
+## Why `omayt`?
 
-O **`omayt`** reúne busca no YouTube, thumbnails em alta definição, aceleração de hardware e reprodução de vídeo e música em **um único executável Python**, pensado para funcionar perfeitamente no **Omarchy / Arch Linux** (terminais **Foot**, **Ghostty** e **Kitty**).
+**`omayt`** brings YouTube search, high-definition thumbnails, hardware acceleration and video and music playback together in **a single Python executable**, designed to work flawlessly on **Omarchy / Arch Linux** (terminals **Foot**, **Ghostty** and **Kitty**).
 
-| Característica | Como o `omayt` resolve |
+| Feature | How `omayt` solves it |
 | :--- | :--- |
-| **Zero chave de API & Zero Invidious** | Pesquisa direta via `yt-dlp` sem depender de quotas da YouTube Data API ou instâncias instáveis do Invidious. |
-| **Zero dependências `pip`** | Escrito integralmente em Python padrão do sistema — sem `venv`, sem pacotes extras no PyPI. |
-| **Zero bloqueio `HTTP 403`** | Proteção em 3 camadas (*Anti-403*) com bypass do perfil `tv_samsung`, `Ad-Wait Guard` e auto-reconnect. |
-| **Zero engasgos por AV1 em CPU** | Exclui streams AV1 (`[vcodec!^=av01]`) e prioriza **H.264 / VP9** com decodificação **VA-API** na GPU. |
-| **Zero `cava` externo necessário** | Visualizador de espectro **FFT Radix-2 a 60 FPS** embutido diretamente no player de áudio. |
+| **Zero API keys & zero Invidious** | Direct search through `yt-dlp`, with no dependency on YouTube Data API quotas or unstable Invidious instances. |
+| **Zero `pip` dependencies** | Written entirely in the system's standard Python — no `venv`, no extra PyPI packages. |
+| **Zero `HTTP 403` blocks** | 3-layer protection (*Anti-403*) with the `tv_samsung` profile bypass, `Ad-Wait Guard` and auto-reconnect. |
+| **Zero AV1 stutter on the CPU** | Excludes AV1 streams (`[vcodec!^=av01]`) and prioritises **H.264 / VP9** with **VA-API** decoding on the GPU. |
+| **Zero external `cava` needed** | A **Radix-2 FFT** spectrum visualiser at **60 FPS**, embedded directly in the audio player. |
 
 ---
 
-## ✨ O que ele tem de melhor
+## ✨ What makes it good
 
-### 🎨 Menu Principal Artesanal & Sincronia Nativa com Temas do Omarchy
-- **Interface sem flicker:** Renderização em tela alternativa com atualização sincronizada (`\033[?2026h`), logo pixel-art `OMAYT` com gradiente TrueColor animado, mini-equalizadores, barra de status ao vivo (tema ativo, `VA-API`, `Anti-403`, contador do histórico) e últimas buscas recentes.
-- **Paleta automática do Omarchy:** Lê `~/.local/state/omarchy/current/theme/colors.toml` e `theme.name` na inicialização e aplica as cores exatas do seu tema no Menu Principal, no explorador `fzf`, no painel de preview e no visualizador Cava.
-- **Navegação em 1 tecla:** Pressione `1–7` para abrir qualquer módulo direto ou `/` para iniciar uma busca imediata no YouTube.
+### 🎨 Hand-crafted main menu & native Omarchy theme sync
+- **Flicker-free interface:** Alternate-screen rendering with synchronised updates (`\033[?2026h`), a pixel-art `OMAYT` logo with an animated TrueColor gradient, mini equalisers, a live status bar (active theme, `VA-API`, `Anti-403`, history counter) and your most recent searches.
+- **Automatic Omarchy palette:** Reads `~/.local/state/omarchy/current/theme/colors.toml` and `theme.name` at startup and applies your theme's exact colours to the main menu, the `fzf` explorer, the preview pane and the Cava visualiser.
+- **One-key navigation:** Press `1–7` to open any module directly, or `/` to start an immediate YouTube search.
 
-### 🎵 Modo Música com Visualizador de Espectro Cava 60 FPS Embutido
-- **Captura de áudio real do sistema:** Lê o monitor de saída em baixa latência (`18ms`) via **PipeWire** (`pw-record`) ou **PulseAudio** (`parec` em `@DEFAULT_MONITOR@`).
-- **Motor FFT Radix-2 em Python puro:** 512 amostras com janela de Hann, AGC dinâmico, física de gravidade, filtro *Monstercat* e *Peak Caps* flutuantes.
-- **3 estilos visuais ao vivo (`v`):**
-  1. **Cava Classic Bars** *(barras verticais com gradientes do tema e Peak Caps)*
-  2. **Stereo Mirror (Monstercat)** *(espectro espelhado L/R a partir do centro)*
-  3. **Center Symmetrical** *(graves centralizados com agudos nas bordas)*
-- **Controle IPC do `mpv`:** Barra de progresso em tempo real, play/pause (`Espaço`), seek ±5s (`←/→`), volume (`↑/↓`) e mute (`m`) sem sair do terminal.
+### 🎵 Music mode with a built-in 60 FPS Cava spectrum visualiser
+- **Real system audio capture:** Reads the output monitor at low latency (`18ms`) through **PipeWire** (`pw-record`) or **PulseAudio** (`parec` on `@DEFAULT_MONITOR@`).
+- **Radix-2 FFT engine in pure Python:** 512 samples with a Hann window, dynamic AGC, gravity physics, a *Monstercat* filter and floating *Peak Caps*.
+- **3 live visual styles (`v`):**
+  1. **Cava Classic Bars** *(vertical bars with theme gradients and Peak Caps)*
+  2. **Stereo Mirror (Monstercat)** *(L/R spectrum mirrored from the centre)*
+  3. **Center Symmetrical** *(bass in the centre, treble at the edges)*
+- **`mpv` IPC control:** Real-time progress bar, play/pause (`Space`), seek ±5s (`←/→`), volume (`↑/↓`) and mute (`m`) without leaving the terminal.
 
-### 🖼️ Thumbnails HD (Sixel & Kitty Graphics Protocol)
-- **Prefetch paralelo assíncrono:** Baixa miniaturas em background (`ThreadPoolExecutor` com 10 workers) direto do CDN oficial (`i.ytimg.com` — `maxresdefault.jpg`, com fallback para `sddefault` e `hqdefault`).
-- **Dimensionamento exato em pixels:** Consulta `TIOCGWINSZ` para calcular a largura ideal da miniatura até `1152px` (`1280px` no modo Sixel direto) com proporção 16:9 exata.
-- **Fix definitivo para Arch Linux (`gdk-pixbuf2` / `glycin`):** No Arch recente, o utilitário `/usr/bin/img2sixel` pode falhar retornando `0 bytes`. O `omayt` contorna o problema decodificando a imagem com `ffmpeg` (crop 16:9 + escala **Lanczos** + nitidez `unsharp`) e invocando `sixel_encoder_encode_bytes` em memória diretamente na `libsixel.so.1` via `ctypes`, com cache `.sixel` em disco.
-- **Multi-terminal:** Usa `kitten icat` (`--transfer-mode=memory --unicode-placeholder`) no **Kitty** e **Ghostty**, Sixel HD nativo no **Foot**, e fallback automático para `chafa`.
+### 🖼️ HD thumbnails (Sixel & Kitty Graphics Protocol)
+- **Parallel asynchronous prefetch:** Downloads thumbnails in the background (`ThreadPoolExecutor` with 10 workers) straight from the official CDN (`i.ytimg.com` — `maxresdefault.jpg`, falling back to `sddefault` and `hqdefault`).
+- **Exact pixel sizing:** Queries `TIOCGWINSZ` to compute the ideal thumbnail width up to `1152px` (`1280px` in direct Sixel mode) with an exact 16:9 ratio.
+- **Definitive fix for Arch Linux (`gdk-pixbuf2` / `glycin`):** On recent Arch, the `/usr/bin/img2sixel` utility can fail and return `0 bytes`. `omayt` works around it by decoding the image with `ffmpeg` (16:9 crop + **Lanczos** scaling + `unsharp` sharpening) and calling `sixel_encoder_encode_bytes` in memory directly against `libsixel.so.1` through `ctypes`, with a `.sixel` cache on disk.
+- **Multi-terminal:** Uses `kitten icat` (`--transfer-mode=memory --unicode-placeholder`) on **Kitty** and **Ghostty**, native HD Sixel on **Foot**, and falls back to `chafa` automatically.
 
-### ⚡ Aceleração de Hardware VA-API & Exclusão de AV1
-- Prioriza streams **H.264 / VP9** (`[vcodec!^=av01]`) até **1080p** na janela `mpv` (`--hwdec=vaapi,vaapi-copy`) e até **720p** nos modos inline do terminal (`--hwdec=vaapi-copy`).
-- Evita decodificação pesada de AV1 em software e contorna falhas comuns do Vulkan Video (`VK_KHR_video_decode_queue`) em GPUs Intel Iris Xe, AMD e Mesa.
+### ⚡ VA-API hardware acceleration & AV1 exclusion
+- Prioritises **H.264 / VP9** streams (`[vcodec!^=av01]`) up to **1080p** in the `mpv` window (`--hwdec=vaapi,vaapi-copy`) and up to **720p** in the terminal's inline modes (`--hwdec=vaapi-copy`).
+- Avoids heavy software AV1 decoding and works around common Vulkan Video (`VK_KHR_video_decode_queue`) failures on Intel Iris Xe, AMD and Mesa GPUs.
 
-### 🛡️ Proteção Tripla Anti-403 (`tv_samsung` Bypass + `Ad-Wait Guard`)
-1. **Bypass do cliente `tv_samsung`:** Injeta `--extractor-args "youtube:player_client=default,-tv_samsung"` no `yt-dlp` e no `mpv` (`--ytdl-raw-options-append`).
-2. **Interceptador `Ad-Wait Guard` no `ytdl_hook` do `mpv`:** O `omayt` atua como wrapper do `yt-dlp`, inspeciona o campo `available_at` dos streams retornados no JSON e aguarda a liberação exata com uma contagem regressiva visual no terminal antes de entregar a URL ao `ffmpeg`.
-3. **Auto-Reconnect HTTP 4xx:** Configura `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5` e retry automático caso o stream seja retido nos primeiros segundos.
+### 🛡️ Triple Anti-403 protection (`tv_samsung` bypass + `Ad-Wait Guard`)
+1. **`tv_samsung` client bypass:** Injects `--extractor-args "youtube:player_client=default,-tv_samsung"` into `yt-dlp` and `mpv` (`--ytdl-raw-options-append`).
+2. **`Ad-Wait Guard` interceptor in `mpv`'s `ytdl_hook`:** `omayt` acts as a `yt-dlp` wrapper, inspects the `available_at` field of the returned stream JSON and waits for the exact release moment with a visual countdown in the terminal before handing the URL to `ffmpeg`.
+3. **HTTP 4xx auto-reconnect:** Sets `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_on_http_error=4xx,reconnect_delay_max=5` and retries automatically if the stream is withheld in the first seconds.
 
 <details>
-<summary><strong>Por que o erro HTTP 403 Forbidden acontece em clientes tradicionais?</strong></summary>
+<summary><strong>Why does the HTTP 403 Forbidden error happen in traditional clients?</strong></summary>
 
-Clientes de terminal tradicionais (`ytfzf` ou `mpv` puro) frequentemente falham com `HTTP 403 Forbidden` porque o `yt-dlp` usa por padrão o perfil `tv_samsung` (Smart TV), no qual o YouTube aplica uma janela de espera de ~3 a 5 segundos (`available_at`) simulando o tempo de "pular anúncio". Enquanto o `yt-dlp` em modo download aguarda esse intervalo, o `mpv` extrai o JSON via `yt-dlp -J` e tenta abrir a URL imediatamente no `ffmpeg`, recebendo `403 Forbidden`. As 3 camadas do `omayt` eliminam esse problema na raiz.
+Traditional terminal clients (`ytfzf` or plain `mpv`) often fail with `HTTP 403 Forbidden` because `yt-dlp` uses the `tv_samsung` (Smart TV) profile by default, on which YouTube applies a wait window of ~3 to 5 seconds (`available_at`) simulating the time to "skip an ad". While `yt-dlp` in download mode waits out that interval, `mpv` extracts the JSON through `yt-dlp -J` and tries to open the URL immediately in `ffmpeg`, receiving `403 Forbidden`. The 3 layers of `omayt` eliminate that problem at the root.
 
 </details>
 
-### 🔎 Busca Paginada (30 em 30), URL Direta, Biblioteca Offline & Diagnóstico
-- **Paginação 30 em 30:** Cada pesquisa carrega 30 resultados e permite expandir **+30 resultados** sob demanda (`Alt+M`, `Ctrl+E` ou selecionando o item ao final da lista), preservando a ordem e a posição do cursor.
-- **Link / URL Direta (`[5]`):** Suporta URLs completas (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) ou IDs de 11 caracteres, com **auto-detecção da área de transferência** via `wl-paste` e escolha de player (*Janela MPV*, *Terminal Sixel/Kitty*, *Cava* ou *Download*).
-- **Downloads & Biblioteca Offline (`Alt+D` / `[6]`):** Baixe vídeos em **MP4 (1080p H.264/VP9)** ou apenas áudio em **MP3** para `~/Videos/omayt/` e reproduza os arquivos locais diretamente pelo menu.
-- **Configurações & Diagnóstico (`[7]`):** Verifica todas as dependências do sistema, exibe swatches da paleta Omarchy ativa, mostra estatísticas de cache HD/histórico e permite aplicar otimizações (`f`) ou limpar cache/buscas (`c` / `h`) em um toque.
-- **Migração automática do `ytfzf`:** Importa automaticamente seu histórico existente de `~/.cache/ytfzf/watch_hist` na primeira execução caso o histórico do `omayt` ainda esteja vazio.
+### 🔎 Paginated search (30 at a time), direct URL, offline library & diagnostics
+- **30-at-a-time pagination:** Every search loads 30 results and lets you expand **+30 results** on demand (`Alt+M`, `Ctrl+E` or by selecting the item at the end of the list), preserving order and cursor position.
+- **Direct link / URL (`[5]`):** Accepts full URLs (`youtube.com/watch`, `youtu.be`, `shorts`, `live`, `embed`) or 11-character IDs, with **clipboard auto-detection** through `wl-paste` and a choice of player (*MPV window*, *Sixel/Kitty terminal*, *Cava* or *Download*).
+- **Downloads & offline library (`Alt+D` / `[6]`):** Download videos as **MP4 (1080p H.264/VP9)** or audio only as **MP3** into `~/Videos/omayt/`, and play the local files straight from the menu.
+- **Settings & diagnostics (`[7]`):** Checks every system dependency, shows swatches of the active Omarchy palette, displays HD cache/history statistics and lets you apply optimisations (`f`) or clear cache/searches (`c` / `h`) in one keystroke.
+- **Automatic `ytfzf` migration:** Imports your existing history from `~/.cache/ytfzf/watch_hist` on the first run if `omayt`'s history is still empty.
 
 ---
 
-## 🎬 4 Modos de Reprodução
+## 🎬 4 playback modes
 
-| Modo | Atalho na TUI | Motor / Protocolo | Qualidade & HWDec | Melhor para |
+| Mode | TUI shortcut | Engine / protocol | Quality & HWDec | Best for |
 | :--- | :--- | :--- | :--- | :--- |
-| **Janela MPV** | `Enter` *(ou `Alt+W`)* | `mpv` nativo (Wayland) | Até **1080p** · `vaapi,vaapi-copy` | Assistir em tela cheia ou janela flutuante com aceleração de GPU |
-| **Vídeo Inline em Pixels** | `Alt+I` *(ou `Ctrl+T`)* | `mpv --vo=sixel` *(Foot)* / `--vo=kitty` *(Kitty/Ghostty)* | Até **720p** · `vaapi-copy` | Assistir dentro da própria janela do terminal em pixels reais |
-| **Blocos TrueColor** | `Alt+B` | `mpv --vo=tct` | Até **720p** · `vaapi-copy` | Compatibilidade universal com qualquer terminal TrueColor |
-| **Modo Música + Cava** | `Alt+A` *(ou `[4]` no Menu)* | `mpv --no-video` + IPC + FFT 60 FPS | `bestaudio/best` | Ouvir músicas e podcasts com visualizador de espectro ao vivo |
+| **MPV window** | `Enter` *(or `Alt+W`)* | Native `mpv` (Wayland) | Up to **1080p** · `vaapi,vaapi-copy` | Watching fullscreen or in a floating window with GPU acceleration |
+| **Inline video in pixels** | `Alt+I` *(or `Ctrl+T`)* | `mpv --vo=sixel` *(Foot)* / `--vo=kitty` *(Kitty/Ghostty)* | Up to **720p** · `vaapi-copy` | Watching inside the terminal window itself, in real pixels |
+| **TrueColor blocks** | `Alt+B` | `mpv --vo=tct` | Up to **720p** · `vaapi-copy` | Universal compatibility with any TrueColor terminal |
+| **Music mode + Cava** | `Alt+A` *(or `[4]` in the menu)* | `mpv --no-video` + IPC + 60 FPS FFT | `bestaudio/best` | Listening to music and podcasts with a live spectrum visualiser |
 
 ---
 
-## 📦 Dependências & Instalação
+## 📦 Dependencies & installation
 
-### Dependências no Omarchy / Arch Linux
+### Dependencies on Omarchy / Arch Linux
 
-- **Obrigatórias:** `python` (Python 3 do sistema), `fzf` (`>= 0.50`), `yt-dlp`, `mpv`, `ffmpeg`, `libsixel`
-- **Opcionais (recomendadas):** `wl-clipboard` (copiar/colar links no Wayland), `libnotify` (notificações ao copiar link), `chafa` (fallback gráfico) e PipeWire/PulseAudio (`pw-record` ou `parec`) para o visualizador Cava.
+- **Required:** `python` (the system's Python 3), `fzf` (`>= 0.50`), `yt-dlp`, `mpv`, `ffmpeg`, `libsixel`
+- **Optional (recommended):** `wl-clipboard` (copy/paste links on Wayland), `libnotify` (notifications when copying a link), `chafa` (graphics fallback) and PipeWire/PulseAudio (`pw-record` or `parec`) for the Cava visualiser.
 
 ```bash
 omarchy pkg add fzf yt-dlp mpv ffmpeg libsixel
 ```
 
-### Opção 1: Script Instalador (`install.sh`)
+### Option 1: Installer script (`install.sh`)
 
 ```bash
 git clone https://github.com/sabb4th/omayt.git
@@ -115,12 +115,12 @@ chmod +x install.sh omayt
 ./install.sh
 ```
 
-O `install.sh` executa 3 passos automaticamente:
-1. Instala o executável em `~/.local/bin/omayt`;
-2. Configura `~/.config/yt-dlp/config` com `--extractor-args "youtube:player_client=default,-tv_samsung"`;
-3. Configura `~/.config/ytfzf/conf.sh` e `~/.config/ytfzf/thumbnail-viewers/sixel-inline` para usar o renderizador Sixel do `omayt` (`omayt --sixel`).
+`install.sh` performs 3 steps automatically:
+1. Installs the executable at `~/.local/bin/omayt`;
+2. Configures `~/.config/yt-dlp/config` with `--extractor-args "youtube:player_client=default,-tv_samsung"`;
+3. Configures `~/.config/ytfzf/conf.sh` and `~/.config/ytfzf/thumbnail-viewers/sixel-inline` to use `omayt`'s Sixel renderer (`omayt --sixel`).
 
-### Opção 2: Pacote Arch Linux (`PKGBUILD`)
+### Option 2: Arch Linux package (`PKGBUILD`)
 
 ```bash
 makepkg -si
@@ -128,89 +128,89 @@ makepkg -si
 
 ---
 
-## 🚀 Como Usar (CLI)
+## 🚀 How to use (CLI)
 
 ```bash
-# Abrir o Menu Principal interativo
+# Open the interactive main menu
 omayt
 
-# Pesquisar direto no YouTube (30 resultados iniciais + thumbnails HD)
+# Search YouTube directly (30 initial results + HD thumbnails)
 omayt "omarchy linux"
 
-# Pular o menu inicial e abrir direto no explorador TUI (fzf)
+# Skip the splash menu and open the TUI explorer (fzf) directly
 omayt --no-menu
 omayt -t
 
-# Abrir direto no Histórico de vídeos assistidos
+# Open the watched-videos history directly
 omayt -H
 omayt --history
 
-# Aplicar otimizações globais Anti-403, sem AV1 e VA-API em yt-dlp e mpv
+# Apply the global Anti-403, no-AV1 and VA-API optimisations to yt-dlp and mpv
 omayt --fix-ytdlp
 
-# Renderizar qualquer imagem em Sixel HD no terminal Foot
-omayt --sixel caminho/para/imagem.jpg 640
+# Render any image as HD Sixel in the Foot terminal
+omayt --sixel path/to/image.jpg 640
 
-# Exibir versão ou ajuda
+# Show version or help
 omayt -v
 omayt -h
 ```
 
 ---
 
-## ⌨️ Atalhos
+## ⌨️ Shortcuts
 
-### Menu Principal
+### Main menu
 
-| Tecla | Ação |
+| Key | Action |
 | :--- | :--- |
-| **`↑` / `↓`** ou **`j` / `k`** | Navegar entre as opções |
-| **`Enter`** | Abrir o item selecionado |
-| **`/`** | Abrir busca rápida no YouTube |
-| **`1` – `7`** | Acesso direto aos módulos do menu |
-| **`0` / `q` / `Esc`** | Sair do `omayt` |
+| **`↑` / `↓`** or **`j` / `k`** | Move between the options |
+| **`Enter`** | Open the selected item |
+| **`/`** | Open a quick YouTube search |
+| **`1` – `7`** | Direct access to the menu modules |
+| **`0` / `q` / `Esc`** | Quit `omayt` |
 
-### Explorador TUI (`fzf`)
+### TUI explorer (`fzf`)
 
-| Atalho | Ação |
+| Shortcut | Action |
 | :--- | :--- |
-| **`Enter`** | Assistir no **`mpv`** *(ou tocar no Cava no Modo Música; busca na 1ª linha `` / carrega +30 na última linha `󰐕`)* |
-| **`Ctrl+S`** | **Pesquisar no YouTube** o termo digitado na barra superior *(30 resultados)* |
-| **`Alt+M`** *(ou `Ctrl+E`)* | **Carregar +30 resultados** para a busca atual *(paginação 30 em 30)* |
-| **`Alt+I`** *(ou `Ctrl+T`)* | Assistir **dentro do terminal** em pixels reais (`--vo=sixel` / `--vo=kitty`) |
-| **`Alt+B`** | Assistir dentro do terminal em **blocos TrueColor** (`--vo=tct`) |
-| **`Alt+A`** | Tocar **apenas áudio** com **visualizador de espectro Cava 60 FPS** |
-| **`Alt+W`** | Forçar abertura na **janela MPV** *(útil quando no Modo Música)* |
-| **`Alt+D`** | Baixar **vídeo (MP4)** ou **áudio (MP3)** para `~/Videos/omayt` |
-| **`Alt+L`** | Copiar o link do vídeo para o clipboard (`wl-copy`) |
-| **`Ctrl+H`** | Abrir o **Histórico** de vídeos assistidos |
-| **`Ctrl+F`** | Alternar filtro local na lista atual |
-| **`Esc` / `Ctrl+C`** | Voltar ao Menu Principal *(ou sair)* |
+| **`Enter`** | Watch in **`mpv`** *(or play in Cava in music mode; searches on the first line ` ` / loads +30 on the last line `󰐕`)* |
+| **`Ctrl+S`** | **Search YouTube** for the term typed in the top bar *(30 results)* |
+| **`Alt+M`** *(or `Ctrl+E`)* | **Load +30 results** for the current search *(30-at-a-time pagination)* |
+| **`Alt+I`** *(or `Ctrl+T`)* | Watch **inside the terminal** in real pixels (`--vo=sixel` / `--vo=kitty`) |
+| **`Alt+B`** | Watch inside the terminal in **TrueColor blocks** (`--vo=tct`) |
+| **`Alt+A`** | Play **audio only** with the **60 FPS Cava spectrum visualiser** |
+| **`Alt+W`** | Force opening in the **MPV window** *(useful when in music mode)* |
+| **`Alt+D`** | Download the **video (MP4)** or the **audio (MP3)** into `~/Videos/omayt` |
+| **`Alt+L`** | Copy the video link to the clipboard (`wl-copy`) |
+| **`Ctrl+H`** | Open the **History** of watched videos |
+| **`Ctrl+F`** | Toggle a local filter on the current list |
+| **`Esc` / `Ctrl+C`** | Back to the main menu *(or quit)* |
 
-### Player de Música (Visualizador Cava)
+### Music player (Cava visualiser)
 
-| Tecla | Ação |
+| Key | Action |
 | :--- | :--- |
-| **`Espaço`** | Play / Pause |
-| **`←` / `→`** | Avançar / Retroceder 5 segundos |
-| **`↑` / `↓`** | Aumentar / Diminuir volume |
-| **`m`** | Ativar / Desativar mudo |
-| **`v`** | Alternar estilo do visualizador *(Classic Bars / Stereo Mirror / Center Symmetrical)* |
-| **`q` / `Esc`** | Voltar à TUI |
+| **`Space`** | Play / Pause |
+| **`←` / `→`** | Seek forward / backward 5 seconds |
+| **`↑` / `↓`** | Increase / decrease volume |
+| **`m`** | Mute / unmute |
+| **`v`** | Cycle the visualiser style *(Classic Bars / Stereo Mirror / Center Symmetrical)* |
+| **`q` / `Esc`** | Back to the TUI |
 
 ---
 
-## 🗂️ Armazenamento Local
+## 🗂️ Local storage
 
-O `omayt` não baixa vídeos em disco ao assistir via streaming; apenas metadados, histórico e miniaturas em cache são armazenados localmente:
+`omayt` does not download videos to disk when streaming; only metadata, history and cached thumbnails are stored locally:
 
-- **`~/.cache/omayt/thumbs_hd/`**: Cache das miniaturas `.jpg` e versões pré-codificadas `.sixel`.
-- **`~/.cache/omayt/videos_db.json`**, **`last_list.json`**, **`state.json`**: Metadados dos vídeos e estado da última sessão/busca.
-- **`~/.config/omayt/watch_history.json`**: Histórico local dos vídeos assistidos (`Ctrl+H`).
-- **`~/.config/omayt/search_history.json`**: Histórico das pesquisas recentes exibidas no Menu Principal.
-- **`~/Videos/omayt/`**: Pasta de downloads MP4/MP3 (criada apenas ao baixar com `Alt+D`).
+- **`~/.cache/omayt/thumbs_hd/`**: Cache of `.jpg` thumbnails and pre-encoded `.sixel` versions.
+- **`~/.cache/omayt/videos_db.json`**, **`last_list.json`**, **`state.json`**: Video metadata and the state of the last session/search.
+- **`~/.config/omayt/watch_history.json`**: Local history of watched videos (`Ctrl+H`).
+- **`~/.config/omayt/search_history.json`**: History of recent searches shown in the main menu.
+- **`~/Videos/omayt/`**: MP4/MP3 download folder (created only when downloading with `Alt+D`).
 
-Você pode gerenciar e limpar cache ou histórico pelo menu **`[7] Configurações & Diagnóstico`** ou manualmente com:
+You can manage and clear cache or history from the **`[7] Settings & diagnostics`** menu, or manually with:
 
 ```bash
 rm -rf ~/.cache/omayt ~/.config/omayt
@@ -218,6 +218,6 @@ rm -rf ~/.cache/omayt ~/.config/omayt
 
 ---
 
-## 📄 Licença
+## 📄 License
 
-Distribuído sob a licença [MIT](./LICENSE).
+Distributed under the [MIT](./LICENSE) license.

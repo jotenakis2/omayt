@@ -4,30 +4,30 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 
-echo "󰗃 Instalando omayt (Omarchy YouTube TUI)..."
+echo "󰗃 Installing omayt (Omarchy YouTube TUI)..."
 
-# 1. Instalar binário omayt em ~/.local/bin/omayt
+# 1. Install the omayt binary into ~/.local/bin/omayt
 mkdir -p "$BIN_DIR"
 chmod +x "$PROJECT_DIR/omayt"
 cp -f "$PROJECT_DIR/omayt" "$BIN_DIR/omayt"
 chmod +x "$BIN_DIR/omayt"
-echo "  ✓ Binário instalado em: $BIN_DIR/omayt"
+echo "  ✓ Binary installed at: $BIN_DIR/omayt"
 
-# 2. Configurar correção global do yt-dlp (evita bloqueio 403 de anúncio no cliente tv_samsung)
+# 2. Configure the global yt-dlp fix (avoids the HTTP 403 ad block on the tv_samsung client)
 mkdir -p "$HOME/.config/yt-dlp"
 YTDLP_CONFIG="$HOME/.config/yt-dlp/config"
 if ! grep -q -- "-tv_samsung" "$YTDLP_CONFIG" 2>/dev/null; then
     {
         echo ""
-        echo "# Evita bloqueio HTTP 403 de anúncio de 5s no cliente tv_samsung"
+        echo "# Avoids the 5s HTTP 403 ad block on the tv_samsung client"
         echo '--extractor-args "youtube:player_client=default,-tv_samsung"'
     } >> "$YTDLP_CONFIG"
-    echo "  ✓ Correção do cliente tv_samsung aplicada em: $YTDLP_CONFIG"
+    echo "  ✓ tv_samsung client fix applied to: $YTDLP_CONFIG"
 else
-    echo "  ✓ Correção do cliente tv_samsung já presente em: $YTDLP_CONFIG"
+    echo "  ✓ tv_samsung client fix already present in: $YTDLP_CONFIG"
 fi
 
-# 3. Também configurar thumbnails Sixel + fix tv_samsung no ytfzf (caso utilize ytfzf)
+# 3. Also configure Sixel thumbnails + the tv_samsung fix in ytfzf (if you use ytfzf)
 mkdir -p "$HOME/.config/ytfzf/thumbnail-viewers"
 cat << 'EOF' > "$HOME/.config/ytfzf/thumbnail-viewers/sixel-inline"
 #!/usr/bin/env sh
@@ -73,15 +73,15 @@ download_thumbnails() {
 
 thumbnail_video_info_text() {
     [ -n "$title" ] && printf "\n ${c_bold}${c_cyan}%s${c_reset}" "$title"
-    [ -n "$channel" ] && printf "\n ${c_blue}Canal    ${c_green}%s${c_reset}" "$channel"
-    [ -n "$duration" ] && printf "\n ${c_blue}Duração  ${c_yellow}%s${c_reset}" "$duration"
+    [ -n "$channel" ] && printf "\n ${c_blue}Channel  ${c_green}%s${c_reset}" "$channel"
+    [ -n "$duration" ] && printf "\n ${c_blue}Duration ${c_yellow}%s${c_reset}" "$duration"
     [ -n "$views" ] && printf "\n ${c_blue}Views    ${c_magenta}%s${c_reset}" "$views"
-    [ -n "$date" ] && printf "\n ${c_blue}Data     ${c_cyan}%s${c_reset}\n" "$date"
+    [ -n "$date" ] && printf "\n ${c_blue}Date     ${c_cyan}%s${c_reset}\n" "$date"
 }
 EOF
-echo "  ✓ Configuração de thumbnails Sixel + fix tv_samsung aplicada no ytfzf (~/.config/ytfzf/conf.sh)"
+echo "  ✓ Sixel thumbnail configuration + tv_samsung fix applied to ytfzf (~/.config/ytfzf/conf.sh)"
 
 echo ""
-echo "🎉 Instalação concluída! Agora basta rodar:"
+echo "🎉 Installation complete! Now just run:"
 echo "   omayt"
-echo "   ou: omayt \"sua pesquisa\""
+echo "   or: omayt \"your search\""
