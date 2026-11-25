@@ -2,7 +2,7 @@
 pkgname=omayt
 pkgver=1.3.0
 pkgrel=1
-pkgdesc="Omarchy YouTube TUI with interactive startup menu, 30-by-30 paginated search, HD Sixel/Kitty thumbnails, Cava visualizer, VA-API, and YouTube 403 Ad-Wait bypass"
+pkgdesc="Omarchy YouTube TUI with Sixel/Kitty HD thumbnails, Cava FFT, and VA-API"
 arch=('any')
 url="https://github.com/sabb4th/omayt"
 license=('MIT')
@@ -12,11 +12,14 @@ optdepends=(
   'wl-clipboard: copy video URLs to Wayland clipboard'
   'libnotify: desktop notifications when copying links'
 )
-source=("omayt" "LICENSE" "README.md")
-sha256sums=('SKIP' 'SKIP' 'SKIP')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/sabb4th/omayt/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('f87c153dbbb69e9764bdd3e9a157cf75b64646c8f9201b8469b7c73974e108da')
 
 package() {
-  install -Dm755 "$srcdir/omayt" "$pkgdir/usr/bin/omayt"
-  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+  cd "$srcdir/$pkgname-$pkgver"
+  install -Dm755 omayt "$pkgdir/usr/bin/omayt"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 README.pt-BR.md "$pkgdir/usr/share/doc/$pkgname/README.pt-BR.md"
+  install -Dm644 README.fr.md "$pkgdir/usr/share/doc/$pkgname/README.fr.md"
 }

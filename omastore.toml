@@ -1,0 +1,15 @@
+kind = "app"
+name = "omayt"
+summary = "Fast, visual terminal YouTube client with no API — built for Omarchy Linux"
+categories = ["AudioVideo", "Video", "Audio", "Player"]
+icon = "assets/icon.svg"
+screenshots = ["assets/preview.png"]
+terminal = true
+
+[linux.x86_64]
+asset = "omayt-{tag}-linux.tar.gz"
+exec = "omayt-{tag}/omayt"
+
+[linux.aarch64]
+asset = "omayt-{tag}-linux.tar.gz"
+exec = "omayt-{tag}/omayt"

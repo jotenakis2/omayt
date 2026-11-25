@@ -1,0 +1,20 @@
+pkgbase = omayt
+	pkgdesc = Omarchy YouTube TUI with Sixel/Kitty HD thumbnails, Cava FFT, and VA-API
+	pkgver = 1.3.0
+	pkgrel = 1
+	url = https://github.com/sabb4th/omayt
+	arch = any
+	license = MIT
+	depends = python
+	depends = fzf
+	depends = yt-dlp
+	depends = mpv
+	depends = ffmpeg
+	depends = libsixel
+	optdepends = chafa: fallback terminal graphics renderer
+	optdepends = wl-clipboard: copy video URLs to Wayland clipboard
+	optdepends = libnotify: desktop notifications when copying links
+	source = omayt-1.3.0.tar.gz::https://github.com/sabb4th/omayt/archive/refs/tags/v1.3.0.tar.gz
+	sha256sums = f87c153dbbb69e9764bdd3e9a157cf75b64646c8f9201b8469b7c73974e108da
+
+pkgname = omayt
