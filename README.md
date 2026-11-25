@@ -1,6 +1,6 @@
 <div align="center">
 
-# 󰗃 omayt — Omarchy YouTube TUI
+# omayt — Omarchy YouTube TUI
 
 **A fast, visual terminal YouTube client with no API — built for the [Omarchy Linux](https://omarchy.org) ecosystem.**
 
